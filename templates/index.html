@@ -1,0 +1,116 @@
+<!-- templates/index.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Movie Ratings</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link href="static/main.css" rel="stylesheet">
+</head>
+<body class="bg-gray-100 min-h-screen p-8">
+    <div class="max-w-4xl mx-auto">
+        <div class="hello justify-between items-center">
+            <h1 class="text-3xl font-bold mb-8">Movie Ratings</h1>
+            <a href="/stats" method="POST" class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-sky-600 text-sm">
+            Stats
+             </a>  
+
+        </div>
+        
+        
+        <!-- Search Form -->
+        <form action="/search" method="get" class="mb-8">
+            <div class="flex gap-4">
+                <input type="text" name="query" required
+                    class="flex-grow p-2 border rounded shadow-sm"
+                    placeholder="Search for a movie...">
+                <button type="submit"
+                    class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-700">
+                    Search
+                </button>
+            </div>
+        </form>
+        
+        <!-- Movie List -->
+    
+        <h3>All Reviewed Movies</h3>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <!-- starts a loop for every movie in the database-->
+            {% for movie in movies %}
+            <div class="bg-white p-4 rounded-lg shadow">
+                <div class="flex gap-4">
+                    <!-- only trys to show the poster if there is one saved-->
+                    {% if movie.poster_path %}
+                    <img src="{{ movie.poster_path }}" alt="{{ movie.title }}"
+                        class="w-24 h-36 object-cover rounded">
+                    {% endif %}
+                    <div>
+                        <h2 class="text-xl font-semibold">{{ movie.title }}</h2>
+                        {% if movie.year %}
+                        <p class="text-gray-600">{{ movie.year }}</p>
+                        {% endif %}
+                        <div class="mt-2">
+                            <span class="text-yellow-500 text-lg">
+                                <!-- shows as many filled in stars as the user rated the movie -->
+                                {% for _ in range(movie.rating) %}★{% endfor %}
+                                {% for _ in range(5 - movie.rating) %}☆{% endfor %}
+                            </span>
+                            <br>
+                            <!-- button to view a larger overview of the movie -->
+                            <a href="/movie/{{ movie.id }}" method="POST" class="px-3.5 py-1.5 bg-blue-500 text-white rounded hover:bg-blue-700 text-sm">
+                                View
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        <!-- the ai reccomended movies  -->
+        <h3>Reccomended Movies</h3>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <!-- loop for all the movies reccomended -->
+            {% for movie in reccomended_movies %}
+            <div class="bg-white p-4 rounded-lg shadow">
+                <div class="flex gap-4">
+                    {% if movie.poster_path %}
+                    <img src="{{ movie.poster_path }}" alt="{{ movie.title }}"
+                        class="w-24 h-36 object-cover rounded">
+                    {% endif %}
+                    <div>
+                        <h2 class="text-xl font-semibold">{{ movie.title }}</h2>
+                        {% if movie.year %}
+                        <p class="text-gray-600">{{ movie.year }}</p>
+                        {% endif %}
+                        <form action="/add-movie" method="post" class="mt-4">
+                            <input type="hidden" name="movie_id" value="{{ movie.id }}">
+                            <input type="hidden" name="title" value="{{ movie.title }}">
+                            <input type="hidden" name="year" value="{{ movie.year }}">
+                            <input type="hidden" name="poster_path" value="{{ movie.poster_path }}">
+                            <input type="hidden" name="overview" value="{{ movie.overview }}">
+                            <input type="hidden" name="votes" value="{{ movie.votes }}">
+                            <div class="flex items-center gap-4">
+                                <select name="rating" required
+                                    class="p-2 border rounded">
+                                    <option value="">Select Rating</option>
+                                    <option value="1">1 Star</option>
+                                    <option value="2">2 Stars</option>
+                                    <option value="3">3 Stars</option>
+                                    <option value="4">4 Stars</option>
+                                    <option value="5">5 Stars</option>
+                                </select>
+                                <button type="submit"
+                                    class="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600">
+                                    Add to My Movies
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+</body>
+</html>

@@ -1,0 +1,10 @@
+fastapi
+uvicorn
+jinja2
+httpx
+pydantic
+python-multipart
+python-dotenv
+ruff
+pytest
+pytest-mock

@@ -1,0 +1,14 @@
+.hello {
+    display:flex;
+}
+.yoyo1 {
+    width: 49%;
+    margin-right: 1.5%;
+}
+.yoyo2 {
+    width: 49%;
+    margin-left: 1.5%;
+}
+.yoyo3 {
+    width: 19%;
+}
