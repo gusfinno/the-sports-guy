@@ -3,7 +3,7 @@ from typing import List
 from pydantic import BaseModel
 from typing import Optional
 
-DATABASE_NAME = ".db"
+DATABASE_NAME = "sports.db"
 
 #defines the attributes and data types for each attribute for which each movie/actor/director will follow
 class Movie(BaseModel):
@@ -25,7 +25,7 @@ def init_db(conn=None):  # Allow passing a connection
     try:
         c = conn.cursor() #checks to see if a table exists and if not creates one
         c.execute("""
-            CREATE TABLE IF NOT EXISTS movies
+            CREATE TABLE IF NOT EXISTS sports
             (id INTEGER PRIMARY KEY,
              title TEXT NOT NULL,
              year TEXT,

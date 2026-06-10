@@ -31,23 +31,27 @@
     <!-- Page content -->
     <div class="max-w-7xl mx-auto px-4 py-4">
         <div class="flex gap-6">
-            <!-- Main column (60%) -->
+            <!-- Main column -->
             <div class="w-4/5 bg-white rounded-lg shadow p-6">
-            </div>
-
-            <!-- Side column (30%) -->
-            <div class="w-1/5 bg-white rounded-lg shadow p-6" style="width: 30%">
-                <h2 class="text-lg font-bold text-gray-800 mb-4">Recommended News</h2>
-                <div class="flex flex-col gap-4">
+                <h2 class="text-lg font-bold text-gray-800 mb-4">Football News</h2>
+                <div class="flex gap-4 overflow-x-auto pb-2">
                     {% for article in news %}
-                    <a href="{{ article.link }}" target="_blank" class="flex flex-col gap-2 hover:opacity-80 transition-opacity">
+                    <a href="{{ article.link }}" target="_blank" class="flex-1 min-w-0 flex flex-col gap-2 hover:opacity-80 transition-opacity">
                         {% if article.image %}
-                        <img src="{{ article.image }}" alt="{{ article.title }}" class="w-full h-32 object-cover rounded">
+                        <img src="{{ article.image }}" alt="{{ article.title }}" class="w-full h-36 object-cover rounded">
                         {% endif %}
                         <p class="text-sm font-medium text-gray-700 leading-snug">{{ article.title }}</p>
                         <span class="text-xs text-blue-500 font-semibold uppercase tracking-wide">{{ article.source }}</span>
                     </a>
                     {% endfor %}
+                </div>
+            </div>
+
+            <!-- Side column (30%) -->
+            <div class="w-1/5 bg-white rounded-lg shadow p-6" style="width: 30%">
+                
+                <div class="flex flex-col gap-4">
+                    
                 </div>
             </div>
         </div>

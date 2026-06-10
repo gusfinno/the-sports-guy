@@ -1,4 +1,5 @@
 fastapi
+feedparser
 uvicorn
 jinja2
 httpx

@@ -1,4 +1,5 @@
 import logging
+import feedparser
 from fastapi import FastAPI, Request, Form, HTTPException
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import RedirectResponse
@@ -6,8 +7,7 @@ from fastapi.staticfiles import StaticFiles
 import httpx
 import os
 from dotenv import load_dotenv
-from database import init_db, get_all_movies, add_movie_to_db, Movie, delete_movie_from_db, update_movie_in_db, ranked_movies, recent_movies, popular_movies, popular_actors, popular_directors, get_all_movies_titles, get_all_movies_titles_rating, get_movie
-from openai import AsyncOpenAI
+from database import init_db
 
 
 # Configure logging
@@ -21,331 +21,237 @@ templates = Jinja2Templates(directory="templates")
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 load_dotenv()
+api_key = os.getenv("SPORT_API")
+SPORT_BASE_URL = "https://v3.football.api-sports.io"
 
-TMDB_API_KEY = "ba96d8323c5e259ff89d125dc697c94c"
-if not TMDB_API_KEY:
-    raise ValueError(
-        "TMDB_API_KEY not found in environment variables. Please set it in your .env file or environment."
-    )
-TMDB_BASE_URL = "https://api.themoviedb.org/3"
+# Sport-specific feeds (no keyword filtering needed)
+RSS_FEEDS_TARGETED = {
+    "https://feeds.bbci.co.uk/sport/football/rss.xml": "BBC Sport",
+    "https://feeds.bbci.co.uk/sport/formula1/rss.xml": "BBC Sport",
+    "https://feeds.bbci.co.uk/sport/cricket/rss.xml": "BBC Sport",
+    "https://feeds.bbci.co.uk/sport/rugby-union/rss.xml": "BBC Sport",
+    "https://feeds.bbci.co.uk/sport/rugby-league/rss.xml": "BBC Sport",
+    "https://feeds.bbci.co.uk/sport/basketball/rss.xml": "BBC Sport",
+    "https://www.skysports.com/rss/12120": "Sky Sports",
+    "https://www.skysports.com/rss/12041": "Sky Sports",
+    "https://www.skysports.com/rss/12039": "Sky Sports",
+}
 
-CHAT_API_KEY = "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"
-async_client = AsyncOpenAI(api_key=CHAT_API_KEY)
-init_db()
+# General feeds — filtered by keyword
+RSS_FEEDS_GENERAL = {
+    "https://www.abc.net.au/news/feed/51120/rss.xml": "ABC Sport",
+    "https://www.theage.com.au/rss/sport.xml": "The Age",
+    "https://www.smh.com.au/rss/sport.xml": "SMH",
+    "https://www.cbssports.com/rss/headlines/": "CBS Sports",
+}
 
-#AI calls to get movie reccomendations
+_SPORT_KEYWORDS = {
+    "f1", "formula 1", "formula one", "grand prix",
+    "nba", "basketball",
+    "football", "soccer", "premier league", "champions league", "world cup",
+    "nfl",
+    "mlb", "baseball",
+    "cricket",
+    "rugby",
+}
 
-async def ai_movie(movie_title):
+_BLOCKLIST = {"fantasy", "esports", "e-sports", "wrestling", "wwe", "ufc", "mma", "nascar", "odds", "bets", "betting"}
 
-    prompt = f"""
-You are a movie recommendation assistant.
+_HEADERS = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"}
 
-Given the movie: "{movie_title}", suggest **4 similar movies** that:
-- Are not already present in this database: {get_all_movies_titles()}
-- Are similar in theme, genre, or tone to the original movie.
-- Are well-known and critically appreciated (no obscure suggestions).
-- Have a known release year.
+# Maps URL path fragments to a sport label
+_FEED_URL_SPORT = {
+    "football": "football",
+    "formula1": "f1",
+    "cricket": "cricket",
+    "rugby-union": "rugby",
+    "rugby-league": "rugby",
+    "basketball": "basketball",
+}
 
-Format the 4 recommendations exactly like this:
-Movie Title (Year)
-Movie Title (Year)
-Movie Title (Year)
-Movie Title (Year)
+# Keyword sets for each sport (checked against title + summary)
+_SPORT_KEYWORD_MAP: dict[str, set[str]] = {
+    "football": {"football", "soccer", "premier league", "champions league", "world cup",
+                 "fa cup", "serie a", "la liga", "bundesliga", "ligue 1", "epl", "transfer window"},
+    "f1": {"f1", "formula 1", "formula one", "grand prix", "formula1"},
+    "cricket": {"cricket", "test match", " odi ", "ipl", "ashes"},
+    "rugby": {"rugby", "six nations", "super rugby", "rugby league", "rugby union"},
+    "basketball": {"basketball", "nba"},
+    "american football": {"nfl", "american football"},
+    "baseball": {"mlb", "baseball"},
+}
 
-Do not include any explanation or commentary — just return the 4 formatted lines.
-Do not include the input movie or any movies from the database list.
-"""
+def _classify_sport(entry, feed_url: str) -> str:
+    for fragment, sport in _FEED_URL_SPORT.items():
+        if fragment in feed_url:
+            return sport
+    text = (entry.get("title", "") + " " + entry.get("summary", "")).lower()
+    for sport, keywords in _SPORT_KEYWORD_MAP.items():
+        if any(kw in text for kw in keywords):
+            return sport
+    return "other"
 
-    response = await async_client.chat.completions.create(
-        model="gpt-4.1",
-        messages=[{"role": "user", "content": prompt}],
-    )
+def _extract_image(entry) -> str | None:
+    if getattr(entry, "media_thumbnail", None):
+        return entry.media_thumbnail[0].get("url")
+    if getattr(entry, "media_content", None):
+        return entry.media_content[0].get("url")
+    if entry.get("enclosures"):
+        enc = entry["enclosures"][0]
+        return enc.get("href") or enc.get("url")
+    return None
 
-    return response.choices[0].message.content.strip()
+def _matches_sport(entry) -> bool:
+    title = entry.get("title", "").lower()
+    if any(b in title for b in _BLOCKLIST):
+        return False
+    text = title + " " + entry.get("summary", "").lower()
+    return any(kw in text for kw in _SPORT_KEYWORDS)
 
+def fetch_news(limit: int = 5, sport: str | None = None) -> list[dict]:
+    articles = []
+    seen_titles: set[str] = set()
+    all_feeds = {**RSS_FEEDS_TARGETED, **RSS_FEEDS_GENERAL}
 
-async def ai_collection():
-    collection = get_all_movies_titles()
-
-    prompt = f"""
-You are a movie recommendation assistant.
-
-Based on this movie collection: {collection}
-
-Suggest 6 additional movies that:
-- Are not already in the collection above.
-- Would strongly appeal to someone who enjoys the movies listed.
-- Are similar in tone, genre, or theme to the overall collection.
-- Are well-known, critically appreciated, and have a known release year.
-
-Format the 6 recommendations exactly like this:
-Movie Title (Year)
-Movie Title (Year)
-Movie Title (Year)
-Movie Title (Year)
-Movie Title (Year)
-Movie Title (Year)
-
-Do not include any commentary, explanation, or repeats from the collection.
-Do not include the words "Recommended movies" or any list numbers or bullet points.
-"""
-
-    response = await async_client.chat.completions.create(
-        model="gpt-4.1",
-        messages=[{"role": "user", "content": prompt}],
-    )
-
-    return response.choices[0].message.content.strip()
-
-#formats the ai reccomendations and then queries tmdb to get the rest of the required information while making sure the right movie is found
-async def format_ai_reccomendation(reccomendation):
-    movies = []
-    movies2 = reccomendation.split("\n")
-    existing_titles = {title.strip().lower() for title in get_all_movies_titles()}
-
-    for movie in movies2:
+    for url, source in all_feeds.items():
+        filtered = url in RSS_FEEDS_GENERAL
         try:
-            hello = movie.strip().rsplit("(", 1)
-            if len(hello) != 2:
-                continue
-
-            movie_title = hello[0].strip()
-            year = hello[1].replace(")", "").strip()
-            full_title = f"{movie_title} ({year})".lower()
-
-            if full_title in existing_titles:
-                continue
-            #queries tmdb for the possible movies chatgpt meant
-            async with httpx.AsyncClient() as client:
-                response = await client.get(
-                    f"{TMDB_BASE_URL}/search/movie",
-                    params={
-                        "api_key": TMDB_API_KEY,
-                        "query": movie_title,
-                        "include_adult": "false",
-                        "language": "en-US",
-                        "page": 1,
-                    },
-                )
-                #response.raise_for_status()  # Raise HTTPStatusError for bad responses (4xx or 5xx)
-
-                response_data = response.json()
-                if "results" not in response_data or not isinstance(response_data["results"], list):
-                    logging.error(f"Unexpected response format from TMDb for query '{movie_title}': 'results' key missing or not a list.")
-                    raise HTTPException(status_code=500, detail="Unexpected response format from TMDb.")
-
-                results = response_data["results"]
-                
-                if not results:
-                    logging.warning(f"No results found for movie '{movie_title}'")
-                    continue
-                
-                selected_movie = None
-                #finds the movie chatgpt meant
-                for result in results:
-                    if result["release_date"][:4] == year[:4]:
-                        selected_movie=result
-                        break
-
-
-                if not selected_movie:
-                    selected_movie = results[0]
-
-                movie1 = Movie(
-                    id=selected_movie["id"],
-                    title=selected_movie["title"],
-                    year=selected_movie["release_date"][:4] if selected_movie.get("release_date") else None,
-                    poster_path=f"https://image.tmdb.org/t/p/w500{selected_movie['poster_path']}"
-                    if selected_movie.get("poster_path")
-                    else None,
-                    overview=selected_movie["overview"],
-                    votes=selected_movie["vote_average"],
-                )
-                
-
-                movies.append(movie1)
-
-        except httpx.RequestError as e:
-            logging.error(f"TMDb API request error for query '{movie_title}': {e}")
+            r = httpx.get(url, headers=_HEADERS, follow_redirects=True, timeout=10)
+            feed = feedparser.parse(r.text)
+        except Exception as e:
+            logging.warning(f"Failed to fetch feed {url}: {e}")
             continue
-        except httpx.HTTPStatusError as e:
-            logging.error(f"TMDb API error for query '{movie_title}': Status {e.response.status_code}")
-            continue
-    return movies
-    
-#queries for a specific movie based on its id returning the movie and the ai's reccomendations to the html
-@app.get("/movie/{movie_id}")
-async def movie_page(request: Request, movie_id: int):
-    movie = get_movie(movie_id)
-    return templates.TemplateResponse(
-        "movie.html", {"request": request, 
-                       "movie": movie,
-                        "recomendations":  await format_ai_reccomendation(await ai_movie(movie.title))}
-    )
 
+        for entry in feed.entries:
+            if filtered and not _matches_sport(entry):
+                continue
+            title = entry.get("title", "")
+            key = title.lower().strip()
+            if key in seen_titles:
+                continue
+            seen_titles.add(key)
+            articles.append({
+                "title": title,
+                "link": entry.get("link", "#"),
+                "image": _extract_image(entry),
+                "published": entry.get("published_parsed"),
+                "source": source,
+                "sport": _classify_sport(entry, url),
+            })
 
+    articles.sort(key=lambda a: a["published"] or 0, reverse=True)
+    if sport:
+        articles = [a for a in articles if a["sport"] == sport]
+    return articles[:limit]
 
-
-#main home page which calls the function to get all of the movies so that the html can show all of them and calls the functions for ai reccomendations
 @app.get("/")
 async def home(request: Request):
-    #makes sure the database is all set up
     init_db()
-    movies = get_all_movies()
-    reccomend_bot = await format_ai_reccomendation(await ai_collection())
-    print(get_all_movies_titles())
+    news = fetch_news()
     return templates.TemplateResponse(
-        "index.html", {"request": request, 
-                       "movies": movies,
-                       "reccomended_movies": reccomend_bot
-                       }
+        request=request,
+        name="index.html",
+        context={"news": news}
     )
+    
+@app.get("/football")
+async def football(request: Request):
+    news = fetch_news(limit=3, sport="football")
+    return templates.TemplateResponse(
+        request=request,
+        name="football.html",
+        context={"news": news},
+    )
+# #queries for a specific movie based on its id returning the movie and the ai's reccomendations to the html
+# @app.get("/movie/{movie_id}")
+# async def movie_page(request: Request, movie_id: int):
+#     movie = get_movie(movie_id)
+#     return templates.TemplateResponse(
+#         "movie.html", {"request": request, 
+#                        "movie": movie}
+#     )
 
-#the stats page which calls the sql functions as variables for html
-@app.get("/stats")
-async def movie_page(request: Request):
-    return templates.TemplateResponse(
-        "stats.html", {"request": request, 
-                       "movies_ranked": ranked_movies(),
-                       "movies_recent": recent_movies(),
-                       "popular": popular_movies(),  
-                       "actors": popular_actors(),
-                       "directors": popular_directors()}
-    )
+
 
 #search page which calls the tmdb api and then passes the results onto the html as a list of Movies
-@app.get("/search")
-async def search(request: Request, query: str):
-    try:
-        async with httpx.AsyncClient() as client:
-            response = await client.get(
-                f"{TMDB_BASE_URL}/search/movie",
-                params={
-                    "api_key": TMDB_API_KEY,
-                    "query": query,
-                    "include_adult": "false",
-                    "language": "en-US",
-                    "page": 1,
-                },
-            )
-            response.raise_for_status()  # Raise HTTPStatusError for bad responses (4xx or 5xx)
+# @app.get("/search")
+# async def search(request: Request, query: str):
+#     try:
+#         async with httpx.AsyncClient() as client:
+#             response = await client.get(
+#                 f"{TMDB_BASE_URL}/search/movie",
+#                 params={
+#                     "api_key": TMDB_API_KEY,
+#                     "query": query,
+#                     "include_adult": "false",
+#                     "language": "en-US",
+#                     "page": 1,
+#                 },
+#             )
+#             response.raise_for_status()  # Raise HTTPStatusError for bad responses (4xx or 5xx)
 
-            response_data = response.json()
-            if "results" not in response_data or not isinstance(response_data["results"], list):
-                logging.error(f"Unexpected response format from TMDb for query '{query}': 'results' key missing or not a list.")
-                raise HTTPException(status_code=500, detail="Unexpected response format from TMDb.")
+#             response_data = response.json()
+#             if "results" not in response_data or not isinstance(response_data["results"], list):
+#                 logging.error(f"Unexpected response format from TMDb for query '{query}': 'results' key missing or not a list.")
+#                 raise HTTPException(status_code=500, detail="Unexpected response format from TMDb.")
 
-            results = response_data["results"]
+#             results = response_data["results"]
             
             
-            movies = [
-                Movie(
-                    id=movie["id"],
-                title=movie["title"],
-                year=movie["release_date"][:4] if movie.get("release_date") else None,
-                poster_path=f"https://image.tmdb.org/t/p/w500{movie['poster_path']}"
-                if movie.get("poster_path")
-                else None,
-                overview=movie["overview"],
-                votes=movie["vote_average"],
-            )
-            for movie in results[:5]  # Limit to 5 results
-        ]
+#             movies = [
+#                 Movie(
+#                     id=movie["id"],
+#                 title=movie["title"],
+#                 year=movie["release_date"][:4] if movie.get("release_date") else None,
+#                 poster_path=f"https://image.tmdb.org/t/p/w500{movie['poster_path']}"
+#                 if movie.get("poster_path")
+#                 else None,
+#                 overview=movie["overview"],
+#                 votes=movie["vote_average"],
+#             )
+#             for movie in results[:5]  # Limit to 5 results
+#         ]
 
-        return templates.TemplateResponse(
-            "search_results.html",
-            {"request": request, "movies": movies, "query": query},
-        )
-    except httpx.RequestError as e:
-        logging.error(f"TMDb API request error for query '{query}': {e}")
-        raise HTTPException(status_code=503, detail="Could not connect to the movie service.")
-    except httpx.HTTPStatusError as e:
-        logging.error(f"TMDb API error for query '{query}': Status {e.response.status_code}")
-        raise HTTPException(status_code=e.response.status_code, detail="Failed to fetch movies from TMDb.")
+#         return templates.TemplateResponse(
+#             "search_results.html",
+#             {"request": request, "movies": movies, "query": query},
+#         )
+#     except httpx.RequestError as e:
+#         logging.error(f"TMDb API request error for query '{query}': {e}")
+#         raise HTTPException(status_code=503, detail="Could not connect to the movie service.")
+#     except httpx.HTTPStatusError as e:
+#         logging.error(f"TMDb API error for query '{query}': Status {e.response.status_code}")
+#         raise HTTPException(status_code=e.response.status_code, detail="Failed to fetch movies from TMDb.")
 
-#adds the specified movie taking the variables passed by the html and then queries tmdb for the cast information which requires a different api call then the other movie information
-@app.post("/add-movie")
-async def add_movie(
-    movie_id: int = Form(...),
-    title: str = Form(...),
-    year: str = Form(None),
-    poster_path: str = Form(None),
-    overview: str = Form(None),
-    votes: float = Form(None),
-    rating: int = Form(...),
-):#ensures the rating is in the acceptable range
-    if rating < 1 or rating > 5:
-        raise HTTPException(status_code=400, detail="Rating must be between 1 and 5")
-    
-    async with httpx.AsyncClient() as client:
-        try:
-            credits_response = await client.get(
-                f"{TMDB_BASE_URL}/movie/{movie_id}/credits",
-                params={"api_key": TMDB_API_KEY}
-            )
-            credits_response.raise_for_status()
-            credits_data = credits_response.json()
-            
-            directors = [
-                person["name"] 
-                for person in credits_data.get("crew", []) 
-                if person["job"] == "Director"
-            ]
 
-            director_images = [
-                f"https://image.tmdb.org/t/p/w185{person['profile_path']}" 
-                if person.get("profile_path") else None
-                for person in credits_data.get("crew", []) 
-                if person["job"] == "Director"
-            ]
-            
-            cast = credits_data.get("cast", [])[:5]
-            actors = [actor["name"] for actor in cast]
-            
-            actor_images = [
-                f"https://image.tmdb.org/t/p/w185{actor['profile_path']}" 
-                if actor.get("profile_path") else None
-                for actor in cast
-            ]
-
-        except Exception as e:
-            logging.error(f"Error fetching credits for movie {movie_id}: {e}")
-            directors = []
-            actors = []
-            actor_images=[]
-            director_images=[]
-    
-    add_movie_to_db(movie_id, title, year, poster_path, rating, overview, votes, directors, director_images, actors, actor_images)
-    logging.info(f"Movie '{title}' (ID: {movie_id}) added with rating: {rating}.")
-    return RedirectResponse(url="/", status_code=303)
-#deletes the movie by calling sql function
-@app.post("/delete-movie/{movie_id}")
-async def delete_item(movie_id: int) -> dict[str, Movie | list[Movie]]:
-    movies=get_all_movies()
-    total_ids=[]
-    for movie in movies:
-        total_ids.append(movie.id)
-    if movie_id not in total_ids:
-        raise HTTPException (
-            status_code=404, detail=f"Item with {movie_id=} does not exist"
-        )
+# #deletes the movie by calling sql function
+# @app.post("/delete-movie/{movie_id}")
+# async def delete_item(movie_id: int) -> dict[str, Movie | list[Movie]]:
+#     movies=get_all_movies()
+#     total_ids=[]
+#     for movie in movies:
+#         total_ids.append(movie.id)
+#     if movie_id not in total_ids:
+#         raise HTTPException (
+#             status_code=404, detail=f"Item with {movie_id=} does not exist"
+#         )
     
     
-    delete_movie_from_db(movie_id)
-    return RedirectResponse(url="/", status_code=303)
+#     delete_movie_from_db(movie_id)
+#     return RedirectResponse(url="/", status_code=303)
 #updates the movies rating based on id and using sql function
-@app.post("/update-movie")
-async def add_movie(
-    movie_id: int = Form(...),
-    rating: int = Form(...),
-):
-    if rating < 1 or rating > 5:
-        raise HTTPException(status_code=400, detail="Rating must be between 1 and 5")
+# @app.post("/update-movie")
+# async def add_movie(
+#     movie_id: int = Form(...),
+#     rating: int = Form(...),
+# ):
+#     if rating < 1 or rating > 5:
+#         raise HTTPException(status_code=400, detail="Rating must be between 1 and 5")
 
-    update_movie_in_db(movie_id, rating)
-    logging.info(f"Movie (ID: {movie_id}) changed rating to: {rating}.")
+#     update_movie_in_db(movie_id, rating)
+#     logging.info(f"Movie (ID: {movie_id}) changed rating to: {rating}.")
 
-    return RedirectResponse(url="/", status_code=303)
+#     return RedirectResponse(url="/", status_code=303)
 #main loop
 if __name__ == "__main__":
     import uvicorn
