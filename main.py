@@ -9,11 +9,12 @@ import time
 import httpx
 import os
 from dotenv import load_dotenv
-from database import init_db
+from database import init_db, get_races, add_schedule_to_db, schedule_exists_for_year
 import fastf1
 import pandas as pd
 import matplotlib.pyplot as plt
-fastf1.Cache.enable_cache('cache')
+import numpy as np
+fastf1.Cache.enable_cache('fastf1-cache')  # Enable caching for faster data retrieval
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -28,6 +29,42 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 load_dotenv()
 api_key = os.getenv("SPORT_API")
 API_BASE_URL = "https://v1.formula-1.api-sports.io/competitions"
+
+@app.get("/")
+async def home(request: Request):
+    init_db()
+    current_year = datetime.now().year
+    if not schedule_exists_for_year(current_year):
+        schedule = fastf1.get_event_schedule(current_year)
+        for index, event in schedule.iterrows():
+            if event.EventFormat == "conventional":
+                format = False
+            else:
+                format = True
+            if event.RoundNumber!=0:
+                add_schedule_to_db(int(str(event.year)+str(event.RoundNumber)), event.year, (event.Country + ": "+ event.Location), format, int(str(event.EventDate)[5:7]), int(str(event.EventDate)[8:10]))
+    return templates.TemplateResponse(
+        request=request,
+        name="index.html"
+    )
+
+@app.get("/f1")
+async def f1(request: Request):
+    return templates.TemplateResponse(
+        request=request,
+        name="f1.html",
+        context={"races": get_races(datetime.now())},
+        
+    )
+
+if __name__ == "__main__":
+    import uvicorn
+
+    uvicorn.run(app, host="127.0.0.1", port=8000)
+
+
+
+
 
 
 RSS_FEEDS = {
@@ -64,25 +101,3 @@ SPORT_KEYWORDS: dict[str, set[str]] = {
     "american football": {"nfl", "american football"},
     "baseball": {"mlb", "baseball"},
 }
-
-            
-
-@app.get("/")
-async def home(request: Request):
-    init_db()
-    return templates.TemplateResponse(
-        request=request,
-        name="index.html"
-    )
-
-@app.get("/f1")
-async def nrl(request: Request):
-    return templates.TemplateResponse(
-        request=request,
-        name="f1.html"
-    )
-
-if __name__ == "__main__":
-    import uvicorn
-
-    uvicorn.run(app, host="127.0.0.1", port=8000)

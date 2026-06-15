@@ -2,20 +2,18 @@ import sqlite3
 from typing import List
 from pydantic import BaseModel
 from typing import Optional
+import datetime
 
 DATABASE_NAME = "sports.db"
 
 #defines the attributes and data types for each attribute for which each movie/actor/director will follow
-class Movie(BaseModel):
-    id: int
-    title: str
-    year: Optional[str] = None
-    poster_path: Optional[str] = None
-    rating: Optional[int] = None
-    overview: Optional[str] = None
-    votes: Optional[float]= None
-    directors: Optional[list] = []
-    actors: Optional[list] = []
+class F1Race(BaseModel):
+    round: int
+    year: int
+    location: str
+    sprint: bool = False
+    month: int
+    day: int
 
 def init_db(conn=None):  # Allow passing a connection
     supplied_conn = bool(conn)
@@ -25,49 +23,58 @@ def init_db(conn=None):  # Allow passing a connection
     try:
         c = conn.cursor() #checks to see if a table exists and if not creates one
         c.execute("""
-            CREATE TABLE IF NOT EXISTS sports
-            (id INTEGER PRIMARY KEY,
-             title TEXT NOT NULL,
-             year TEXT,
-             poster_path TEXT,
-             rating INTEGER NOT NULL, 
-             overview TEXT NOT NULL, 
-             votes FLOAT NOT NULL);
+            CREATE TABLE IF NOT EXISTS f1_races
+            (round INTEGER PRIMARY KEY,
+             year INTEGER NOT NULL,
+             location TEXT NOT NULL,
+             sprint BOOLEAN NOT NULL,
+             month INTEGER NOT NULL,
+             day INTEGER NOT NULL);
         """)
         conn.commit()
     finally:
         if not supplied_conn and conn:  # If we opened it, we close it
             conn.close()
-    
+
 #gets an individual movie using an id and defines it using base class
-def get_movie(movie_id: int) -> Movie:
+def get_races(date: datetime.date) -> List[F1Race]:
     with sqlite3.connect(DATABASE_NAME) as conn:
         c = conn.cursor()
-        
-        # Get the movie
-        c.execute("SELECT * FROM movies WHERE id = ?", (movie_id,))
-        row = c.fetchone()
-        
-        if not row:
-            raise ValueError(f"Movie with id {movie_id} not found")
-        
-        # Get directors for this movie
-        c.execute("SELECT name FROM directors WHERE movie_id = ?", (movie_id,))
-        directors = [row[0] for row in c.fetchall()]
-        
-        # Get actors for this movie
-        c.execute("SELECT name FROM actors WHERE movie_id = ?", (movie_id,))
-        actors = [row[0] for row in c.fetchall()]
-        
-        return Movie(
-            id=row[0],
-            title=row[1],
-            year=row[2],
-            poster_path=row[3],
-            rating=row[4],
-            overview=row[5],
-            votes=row[6],
-            directors=directors,
-            actors=actors
-        )
+        races = []
 
+        c.execute("SELECT * FROM f1_races WHERE (month < ?) OR (month == ? AND day <= ?) ORDER BY round DESC LIMIT 1", (date.month, date.month, date.day))
+        last_race = c.fetchone()
+
+        if last_race is None:
+            raise ValueError(f"No races yet this season?")
+
+        races.append(F1Race(round=last_race[0], year=last_race[1], location=last_race[2], sprint=last_race[3], month=last_race[4], day=last_race[5]))
+
+        c.execute("SELECT * FROM f1_races WHERE round == ? ORDER BY round DESC LIMIT 1", (last_race[0] + 1,))
+        next_race = c.fetchone()
+        if next_race is not None:
+            races.append(F1Race(round=next_race[0], year=next_race[1], location=next_race[2], sprint=next_race[3], month=next_race[4], day=next_race[5]))
+
+        return races
+
+def add_schedule_to_db(
+    round: int,
+    year: int,
+    location: str,
+    sprint: bool,
+    month: int,
+    day: int
+):
+    with sqlite3.connect(DATABASE_NAME) as conn:
+        c = conn.cursor()
+        c.execute(
+            "INSERT INTO f1_races (round, year, location, sprint, month, day) VALUES (?, ?, ?, ?, ?, ?)",
+            (round, year, location, sprint, month, day),
+        )
+        conn.commit()
+
+def schedule_exists_for_year(year: int) -> bool:
+    with sqlite3.connect(DATABASE_NAME) as conn:
+        c = conn.cursor()
+        c.execute("SELECT 1 FROM f1_races WHERE year = ? LIMIT 1", (year,))
+        return c.fetchone() is not None
