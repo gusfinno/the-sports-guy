@@ -1,4 +1,4 @@
-<!-- templates/index.html -->
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -8,47 +8,26 @@
     <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
     <link href="static/main.css" rel="stylesheet">
 </head>
-<body class="bg-blue-50 min-h-screen">
+<body class="bg-white-50 min-h-screen">
 
-    <!-- Navbar -->
     <nav class="bg-blue-100 shadow-md px-8 py-4">
         <div class="max-w-5xl mx-auto flex items-center justify-between">
-            <!-- Title + Nav links grouped left -->
             <div class="flex items-center gap-6">
                 <h1 class="text-2xl font-bold text-gray-800">THESPORTSGUY</h1>
-                <a href="/football" class="text-gray-600 hover:text-gray-900 font-medium transition-colors">Football</a>
+                <a href="/f1" class="text-gray-600 hover:text-gray-900 font-medium transition-colors">Formula 1</a>
             </div>
-
-            <!-- Profile icon -->
-            <div class="w-9 h-9 rounded-full bg-gray-200 flex items-center justify-center cursor-pointer hover:bg-gray-300 transition-colors">
-                <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 text-gray-600" viewBox="0 0 24 24" fill="currentColor">
-                    <path d="M12 12c2.7 0 4.8-2.1 4.8-4.8S14.7 2.4 12 2.4 7.2 4.5 7.2 7.2 9.3 12 12 12zm0 2.4c-3.2 0-9.6 1.6-9.6 4.8v2.4h19.2v-2.4c0-3.2-6.4-4.8-9.6-4.8z"/>
-                </svg>
-            </div>
+            
         </div>
     </nav>
 
-    <!-- Page content -->
     <div class="max-w-7xl mx-auto px-4 py-4">
         <div class="flex gap-6">
-            <!-- Main column (60%) -->
-            <div class="w-4/5 bg-white rounded-lg shadow p-6">
+            <div class="w-4/5 bg-blue-100 rounded-lg shadow p-6">
+                hello
             </div>
 
-            <!-- Side column (30%) -->
-            <div class="w-1/5 bg-white rounded-lg shadow p-6" style="width: 30%">
-                <h2 class="text-lg font-bold text-gray-800 mb-4">Recommended News</h2>
-                <div class="flex flex-col gap-4">
-                    {% for article in news %}
-                    <a href="{{ article.link }}" target="_blank" class="flex flex-col gap-2 hover:opacity-80 transition-opacity">
-                        {% if article.image %}
-                        <img src="{{ article.image }}" alt="{{ article.title }}" class="w-full h-32 object-cover rounded">
-                        {% endif %}
-                        <p class="text-sm font-medium text-gray-700 leading-snug">{{ article.title }}</p>
-                        <span class="text-xs text-blue-500 font-semibold uppercase tracking-wide">{{ article.source }}</span>
-                    </a>
-                    {% endfor %}
-                </div>
+            <div class="w-1/5 bg-blue-100 rounded-lg shadow p-6" style="width: 30%">
+                hello
             </div>
         </div>
     </div>
