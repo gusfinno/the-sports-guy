@@ -9,11 +9,12 @@ import time
 import httpx
 import os
 from dotenv import load_dotenv
-from database import init_db, get_races, add_schedule_to_db, schedule_exists_for_year
+from database import init_db, get_races, add_schedule_to_db, schedule_exists_for_year, add_drivers_to_db, drivers_exist, clear_drivers, get_driver_image
 import fastf1
 import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
+import requests
 fastf1.Cache.enable_cache('fastf1-cache')  # Enable caching for faster data retrieval
 
 # Configure logging
@@ -26,6 +27,17 @@ logging.info("Database initialization will be handled by tests or explicit start
 templates = Jinja2Templates(directory="templates")
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
+def load_driver_data():
+    if drivers_exist():
+        return
+    response = requests.get("https://api.openf1.org/v1/drivers?session_key=latest")
+    if response.status_code == 200:
+        data = response.json()
+        for driver in data:
+            add_drivers_to_db(driver['driver_number'], driver['broadcast_name'], driver['first_name'], driver['last_name'], driver['headshot_url'])
+    else:
+        print("Error fetching driver data")
+
 load_dotenv()
 api_key = os.getenv("SPORT_API")
 API_BASE_URL = "https://v1.formula-1.api-sports.io/competitions"
@@ -33,8 +45,10 @@ API_BASE_URL = "https://v1.formula-1.api-sports.io/competitions"
 @app.get("/")
 async def home(request: Request):
     init_db()
+    load_driver_data()
     current_year = datetime.now().year
     if not schedule_exists_for_year(current_year):
+        clear_drivers()
         schedule = fastf1.get_event_schedule(current_year)
         for index, event in schedule.iterrows():
             if event.EventFormat == "conventional":
@@ -50,10 +64,23 @@ async def home(request: Request):
 
 @app.get("/f1")
 async def f1(request: Request):
+    races=get_races(datetime.now())
+    results={}
+    session = fastf1.get_session(races[0].year, races[0].location.split(": ")[1], 'Race')
+    session.load()
+    results=session.results.head(3)
+    top3=str(results[['Position', 'BroadcastName', 'TeamName']]).split("\n")
+    top3.pop(0)
+    for i in range(len(top3)):
+        top3[i]=top3[i].split()
+        top3[i].append(get_driver_image(int(top3[i][0])))
+    
+
     return templates.TemplateResponse(
         request=request,
         name="f1.html",
-        context={"races": get_races(datetime.now())},
+        context={"races": races,
+                 "top3": top3},
         
     )
 

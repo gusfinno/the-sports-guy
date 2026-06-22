@@ -15,6 +15,13 @@ class F1Race(BaseModel):
     month: int
     day: int
 
+class Driver(BaseModel):
+    number: int
+    broadcast_name: str
+    first_name: str
+    last_name: str
+    url: str
+
 def init_db(conn=None):  # Allow passing a connection
     supplied_conn = bool(conn)
     if not conn:
@@ -30,6 +37,14 @@ def init_db(conn=None):  # Allow passing a connection
              sprint BOOLEAN NOT NULL,
              month INTEGER NOT NULL,
              day INTEGER NOT NULL);
+        """)
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS drivers
+            (number INTEGER PRIMARY KEY,
+             broadcast_name TEXT NOT NULL,
+             first_name TEXT NOT NULL,
+             last_name TEXT NOT NULL,
+             url TEXT NOT NULL);
         """)
         conn.commit()
     finally:
@@ -72,9 +87,42 @@ def add_schedule_to_db(
             (round, year, location, sprint, month, day),
         )
         conn.commit()
+def add_drivers_to_db(
+    number: int,
+    broadcast_name: str,
+    first_name: str,
+    last_name: str,
+    url: str
+):
+    with sqlite3.connect(DATABASE_NAME) as conn:
+        c = conn.cursor()
+        c.execute(
+            "INSERT OR IGNORE INTO drivers (number, broadcast_name, first_name, last_name, url) VALUES (?, ?, ?, ?, ?)",
+            (number, broadcast_name, first_name, last_name, url),
+        )
+        conn.commit()
 
 def schedule_exists_for_year(year: int) -> bool:
     with sqlite3.connect(DATABASE_NAME) as conn:
         c = conn.cursor()
         c.execute("SELECT 1 FROM f1_races WHERE year = ? LIMIT 1", (year,))
         return c.fetchone() is not None
+
+def drivers_exist() -> bool:
+    with sqlite3.connect(DATABASE_NAME) as conn:
+        c = conn.cursor()
+        c.execute("SELECT 1 FROM drivers LIMIT 1")
+        return c.fetchone() is not None
+
+def clear_drivers():
+    with sqlite3.connect(DATABASE_NAME) as conn:
+        c = conn.cursor()
+        c.execute("DELETE FROM drivers")
+        conn.commit()
+
+def get_driver_image(number: int):
+    with sqlite3.connect(DATABASE_NAME) as conn:
+        c = conn.cursor()
+        c.execute("SELECT url FROM drivers WHERE number = ?", (number,))
+        result = c.fetchone()
+        return result[0] if result else None

@@ -30,9 +30,19 @@
                 <div class="flex">
                     <div class="flex-1 min-w-0">
                         <h2 class="text-base font-semibold text-gray-700 mb-2 text-left">Recent Races</h2>
-                        <div class="w-11/12 bg-blue-200 rounded-lg shadow p-6">
+                        <div class="w-11/12 bg-blue-200 rounded-lg shadow p-4">
                             {% if races[0] %}
-                            {{ races[0].location }}
+                                <p class="font-medium mb-3">{{ races[0].location }}</p>
+                                <div class="flex flex-col gap-2">
+                                {% for driver in top3 %}
+                                    <div class="flex items-center gap-3 bg-blue-400 rounded-lg shadow px-3 py-2">
+                                    {% if driver[5] %}
+                                    <img src="{{ driver[5] }}" alt="{{ driver[2] ~ ' ' ~ driver[3] }}" class="w-14 h-18 object-contain flex-shrink-0" style="image-rendering: auto; height: 4.5rem;">
+                                    {% endif %}
+                                    <span class="font-medium">{{ (driver[1] | int) ~ " : " ~ driver[2] ~ " " ~ driver[3] ~ " - " ~ driver[4]}}</span>
+                                    </div>
+                                {% endfor %}
+                                </div>
                             {% endif %}
                         </div>
                     </div>
