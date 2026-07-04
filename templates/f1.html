@@ -31,15 +31,15 @@
                     <div class="flex-1 min-w-0">
                         <h2 class="text-base font-semibold text-gray-700 mb-2 text-left">Recent Races</h2>
                         <div class="w-11/12 bg-blue-200 rounded-lg shadow p-4">
-                            {% if races[0] %}
-                                <p class="font-medium mb-3">{{ races[0].location }}</p>
+                            {% if races[-2] %}
+                                <p class="font-medium mb-3">{{ races[-2].location }}</p>
                                 <div class="flex flex-col gap-2">
-                                {% for driver in top3 %}
+                                {% for driver in results[:3] %}
                                     <div class="flex items-center gap-3 bg-blue-400 rounded-lg shadow px-3 py-2">
-                                    {% if driver[5] %}
-                                    <img src="{{ driver[5] }}" alt="{{ driver[2] ~ ' ' ~ driver[3] }}" class="w-14 h-18 object-contain flex-shrink-0" style="image-rendering: auto; height: 4.5rem;">
+                                    {% if driver.url %}
+                                    <img src="{{ driver.url }}" alt="{{ driver.first_name ~ ' ' ~ driver.last_name }}" class="w-14 h-18 object-contain flex-shrink-0" style="image-rendering: auto; height: 4.5rem;">
                                     {% endif %}
-                                    <span class="font-medium">{{ (driver[1] | int) ~ " : " ~ driver[2] ~ " " ~ driver[3] ~ " - " ~ driver[4]}}</span>
+                                    <span class="font-medium">{{ (driver.driver_id | int) ~ " : " ~ driver.first_name ~ " " ~ driver.last_name ~ " - " ~ driver.constructor_name}}</span>
                                     </div>
                                 {% endfor %}
                                 </div>
@@ -49,8 +49,8 @@
                     <div class="flex-1 min-w-0">
                         <h2 class="text-base font-semibold text-gray-700 mb-2 text-right">Upcoming Races</h2>
                         <div class="w-11/12 bg-blue-200 rounded-lg shadow p-6 ml-auto">
-                            {% if races[1] %}
-                            {{ races[1].location }}
+                            {% if races[-1] %}
+                            {{ races[-1].location }}
                             {% else %}
                             No upcoming races scheduled.
                             {% endif %}

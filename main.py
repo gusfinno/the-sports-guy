@@ -9,8 +9,9 @@ import time
 import httpx
 import os
 from dotenv import load_dotenv
-from database import init_db, get_races, add_schedule_to_db, schedule_exists_for_year, add_drivers_to_db, drivers_exist, clear_drivers, get_driver_image
+from database import get_basic_results, init_db, get_races, add_schedule_to_db, schedule_exists_for_year, add_drivers_to_db, drivers_exist, clear_drivers, get_driver_image, add_race_to_db, get_constructor_id, get_driver, Stint, results_exist_for_round, clear_results_for_round
 import fastf1
+from fastf1.ergast import Ergast
 import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
@@ -21,42 +22,109 @@ fastf1.Cache.enable_cache('fastf1-cache')  # Enable caching for faster data retr
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logging.info("Application starting up...")
 
+ergast = Ergast(
+    result_type='pandas',  # or 'raw'
+    auto_cast=True,
+    limit=None
+)
+
 app = FastAPI()
 # init_db() # Initialize database at startup - This will be handled by tests or explicit startup event
+
 logging.info("Database initialization will be handled by tests or explicit startup event.")
 templates = Jinja2Templates(directory="templates")
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
-def load_driver_data():
+def load_race_data(round1: int, year: int, location: str):
+    session = fastf1.get_session(year, location, 'Race')
+    session.load()
+    results = session.results
+    laps = session.laps
+
+    for _, driver_row in results.iterrows():
+        driver_id = int(driver_row['DriverNumber'])
+        constructor_id = get_constructor_id(driver_id)
+
+        grid_pos = driver_row['GridPosition']
+        grid_position = str(int(grid_pos)) if not pd.isna(grid_pos) else 0
+
+        finish_pos = driver_row['Position']
+        position = str(int(finish_pos)) if not pd.isna(finish_pos) else 23
+
+        status = str(driver_row['Status'])
+
+        driver_laps = laps.pick_drivers(driver_row['DriverNumber'])
+
+        stints = driver_laps[["Driver", "Stint", "Compound", "LapNumber"]]
+        stints = stints.groupby(["Driver", "Stint", "Compound"])
+        stints = stints.count().reset_index()
+        stints = [Stint(tire=row['Compound'], laps=row['LapNumber']) for _, row in stints.iterrows()]
+
+        lap_positions = driver_laps['Position'].dropna()
+        overtakes = int((lap_positions.diff() < 0).sum())
+
+        total_laps = len(driver_laps)
+
+        add_race_to_db(
+            round1,
+            driver_id,
+            constructor_id,
+            grid_position,
+            position,
+            stints,
+            overtakes,
+            total_laps,
+            status,
+        )
+
+def load_driver_data(round1: int, year: int, location: str):
     if drivers_exist():
         return
-    response = requests.get("https://api.openf1.org/v1/drivers?session_key=latest")
-    if response.status_code == 200:
-        data = response.json()
-        for driver in data:
-            add_drivers_to_db(driver['driver_number'], driver['broadcast_name'], driver['first_name'], driver['last_name'], driver['headshot_url'])
-    else:
-        print("Error fetching driver data")
+    session = fastf1.get_session(year, location, 'Race')
+    session.load()
+    results = session.results
+    standings = ergast.get_driver_standings(season='current')
+    standings = standings.content[0]
+
+    for _, driver_row in results.iterrows():
+        add_drivers_to_db(
+            int(driver_row['DriverNumber']), 
+            driver_row['BroadcastName'], 
+            driver_row['FirstName'], 
+            driver_row['LastName'], 
+            driver_row['TeamName'], 
+            driver_row['HeadshotUrl'], 
+            float(standings.loc[standings['driverNumber'] == int(driver_row['DriverNumber']), 'points'].iloc[0])
+            )
 
 load_dotenv()
 api_key = os.getenv("SPORT_API")
 API_BASE_URL = "https://v1.formula-1.api-sports.io/competitions"
 
+
+
+
+
+init_db()
+current_year = datetime.now().year
+if not schedule_exists_for_year(current_year):
+    clear_drivers()
+    schedule = fastf1.get_event_schedule(current_year)
+    for index, event in schedule.iterrows():
+        if event.EventFormat == "conventional":
+            format = False
+        else:
+            format = True
+        if event.RoundNumber!=0:
+            add_schedule_to_db(int(str(event.year)+str(event.RoundNumber)), event.year, (event.Country + ": "+ event.Location), format, int(str(event.EventDate)[5:7]), int(str(event.EventDate)[8:10]))
+
+
+
+
+
+
 @app.get("/")
 async def home(request: Request):
-    init_db()
-    load_driver_data()
-    current_year = datetime.now().year
-    if not schedule_exists_for_year(current_year):
-        clear_drivers()
-        schedule = fastf1.get_event_schedule(current_year)
-        for index, event in schedule.iterrows():
-            if event.EventFormat == "conventional":
-                format = False
-            else:
-                format = True
-            if event.RoundNumber!=0:
-                add_schedule_to_db(int(str(event.year)+str(event.RoundNumber)), event.year, (event.Country + ": "+ event.Location), format, int(str(event.EventDate)[5:7]), int(str(event.EventDate)[8:10]))
     return templates.TemplateResponse(
         request=request,
         name="index.html"
@@ -65,24 +133,21 @@ async def home(request: Request):
 @app.get("/f1")
 async def f1(request: Request):
     races=get_races(datetime.now())
-    results={}
-    session = fastf1.get_session(races[0].year, races[0].location.split(": ")[1], 'Race')
-    session.load()
-    results=session.results.head(3)
-    top3=str(results[['Position', 'BroadcastName', 'TeamName']]).split("\n")
-    top3.pop(0)
-    for i in range(len(top3)):
-        top3[i]=top3[i].split()
-        top3[i].append(get_driver_image(int(top3[i][0])))
-    
+    load_driver_data(races[-2].round, races[-2].year, races[-2].location.split(": ")[0])
+    if not results_exist_for_round(races[-2].round):
+        load_race_data(races[-2].round, races[-2].year, races[-2].location.split(": ")[0])
+    results = get_basic_results(races[-2].round)
 
     return templates.TemplateResponse(
         request=request,
         name="f1.html",
         context={"races": races,
-                 "top3": top3},
+                 "results": results},
         
     )
+
+
+
 
 if __name__ == "__main__":
     import uvicorn
