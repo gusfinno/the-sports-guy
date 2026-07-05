@@ -36,10 +36,11 @@ def test_get_races_returns_past_races_and_next(db):
     database.add_schedule_to_db(20262, 2026, "Saudi: Jeddah", False, 3, 9)
     database.add_schedule_to_db(20263, 2026, "Australia: Melbourne", False, 12, 1)
 
-    races = database.get_races(datetime.date(2026, 6, 1))
+    past_races, future_races = database.get_races(datetime.date(2026, 6, 1))
 
-    assert [r.round for r in races] == [20261, 20262, 20263]
-    assert races[-2].round == 20262
+    assert [r.round for r in past_races] == [20261, 20262]
+    assert [r.round for r in future_races] == [20263]
+    assert past_races[-1].round == 20262
 
 
 def test_get_races_raises_when_no_past_races(db):
@@ -52,9 +53,9 @@ def test_get_races_excludes_other_years(db):
     database.add_schedule_to_db(20251, 2025, "Old: Race", False, 6, 1) 
     database.add_schedule_to_db(202611, 2026, "Bahrain: Sakhir", False, 3, 2)
 
-    races = database.get_races(datetime.date(2026, 6, 1))
+    past_races, future_races = database.get_races(datetime.date(2026, 6, 1))
 
-    assert all(r.year == 2026 for r in races)
+    assert all(r.year == 2026 for r in past_races)
 
 
 def test_constructor_add_and_lookup_by_name(db):
