@@ -222,12 +222,12 @@ def add_drivers_to_db(
 #GET functions
 
 
-def get_races(date: datetime.date) -> List[F1Race]:
+def get_races(date: datetime.date):
     with sqlite3.connect(DATABASE_NAME) as conn:
         c = conn.cursor()
 
-        c.execute("SELECT * FROM f1_races WHERE year = ? AND (month < ? OR (month == ? AND day <= ?)) ORDER BY round ASC", (date.year, date.month, date.month, date.day))
-        races = [
+        c.execute("SELECT * FROM f1_races WHERE year = ? AND (month < ? OR (month == ? AND day < ?)) ORDER BY round ASC", (date.year, date.month, date.month, date.day))
+        past_races = [
             F1Race(
                 round=row[0], year=row[1], location=row[2], sprint=row[3], month=row[4], day=row[5]
             )
@@ -235,16 +235,23 @@ def get_races(date: datetime.date) -> List[F1Race]:
             for row in c.fetchall()
         ]
 
-        if races == []:
+        if past_races == []:
             raise ValueError(f"No races yet this season?")
 
 
-        c.execute("SELECT * FROM f1_races WHERE round == ? ORDER BY round DESC LIMIT 1", (races[-1].round + 1,))
-        next_race = c.fetchone()
-        if next_race is not None:
-            races.append(F1Race(round=next_race[0], year=next_race[1], location=next_race[2], sprint=next_race[3], month=next_race[4], day=next_race[5]))
+        c.execute("SELECT * FROM f1_races WHERE year = ? AND (month > ? OR (month == ? AND day >= ?)) ORDER BY round ASC", (date.year, date.month, date.month, date.day))
+        future_races = [
+            F1Race(
+                round=row[0], year=row[1], location=row[2], sprint=row[3], month=row[4], day=row[5]
+            )
+            
+            for row in c.fetchall()
+        ]
 
-        return races
+        if future_races == []:
+            future_races = None
+
+        return past_races, future_races
 
 def get_constructor_id(key) -> int:
     with sqlite3.connect(DATABASE_NAME) as conn:

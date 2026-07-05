@@ -165,22 +165,30 @@ async def home(request: Request):
 
 @app.get("/f1")
 async def f1(request: Request):
-    races=get_races(datetime.now())
+    past_races, future_races = get_races(datetime.now())
     load_constructor_data()
     load_leaderboard()
-    load_driver_data(races[-2].round, races[-2].year, races[-2].location.split(": ")[0])
-    if not results_exist_for_round(races[-2].round):
-        load_race_data(races[-2].round, races[-2].year, races[-2].location.split(": ")[0])
+    load_driver_data(past_races[-1].round, past_races[-1].year, past_races[-1].location.split(": ")[0])
+    if not results_exist_for_round(past_races[-1].round):
+        load_race_data(past_races[-1].round, past_races[-1].year, past_races[-1].location.split(": ")[0])
     
-    results = get_basic_results(races[-2].round)
+    results = get_basic_results(past_races[-1].round)
+    results2 = None
+    if not future_races:
+        results2 = get_basic_results(past_races[-1].round)
+        if not results_exist_for_round(past_races[-2].round):
+            load_race_data(past_races[-2].round, past_races[-2].year, past_races[-2].location.split(": ")[0])
+        results = get_basic_results(past_races[-2].round)
     driver_standings = get_driver_standings(datetime.now().year)
     constructor_standings = get_constructor_standings(datetime.now().year)
 
     return templates.TemplateResponse(
         request=request,
         name="f1.html",
-        context={"races": races,
+        context={"past_races": past_races,
+                 "future_races": future_races,
                  "results": results,
+                 "results2": results2,
                  "driver_standings": driver_standings,
                  "constructor_standings": constructor_standings},
         
