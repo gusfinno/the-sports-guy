@@ -62,9 +62,27 @@
             </div>
 
             <div class="w-1/5 bg-blue-100 rounded-lg shadow p-6" style="width: 40%">
-                <h2 class="text-lg text-gray-600">Driver Standings</h2>
-                <br>
-                <h2 class="text-lg text-gray-600">Constructor Standings</h2>
+                <h2 class="text-lg text-gray-600 mb-3">Driver Standings</h2>
+                <table class="w-full text-sm text-left">
+                    <thead class="text-gray-500 border-b border-blue-300">
+                        <tr>
+                            <th class="py-2 pr-2">#</th>
+                            <th class="py-2 pr-2">Driver</th>
+                            <th class="py-2 pr-2">Team</th>
+                            <th class="py-2 text-right">Pts</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for driver in driver_standings %}
+                        <tr class="border-b border-blue-200">
+                            <td class="py-2 pr-2 text-gray-500">{{ loop.index }}</td>
+                            <td class="py-2 pr-2 font-medium">{{ driver.first_name }} {{ driver.last_name }}</td>
+                            <td class="py-2 pr-2 text-gray-600">{{ driver.constructor_name }}</td>
+                            <td class="py-2 text-right font-semibold">{{ driver.points | int }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
             </div>
         </div>
     </div>

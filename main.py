@@ -44,20 +44,21 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 
 def load_leaderboard():
     standings = ergast.get_driver_standings(season='current')
+    standings = standings.content[0]
     year = datetime.now().year
-    for _, driver in standings.iterrow():
+    for _, driver in standings.iterrows():
         add_driver_standings_to_db(
-            driver['driverNumber'],
+            int(driver['driverNumber']),
             year,
-            driver['points']
+            float(driver['points'])
         )
     standings = ergast.get_constructor_standings(season='current')
-    year = datetime.now().year
-    for _, constructor in standings.iterrow():
+    standings = standings.content[0]
+    for _, constructor in standings.iterrows():
         add_constructor_standings_to_db(
             constructor['constructorName'],
             year,
-            constructor['points']
+            float(constructor['points'])
         )
 
 def load_race_data(round1: int, year: int, location: str):

@@ -180,10 +180,11 @@ def add_driver_standings_to_db(
         conn.commit()
 
 def add_constructor_standings_to_db(
-    id: int,
+    name: str,
     year: int,
     points: float,
 ):
+    id = get_constructor_id(name)
     with sqlite3.connect(DATABASE_NAME) as conn:
         c = conn.cursor()
         c.execute(
