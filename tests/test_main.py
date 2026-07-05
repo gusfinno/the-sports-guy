@@ -38,9 +38,9 @@ def test_f1_renders_seeded_results(client, monkeypatch):
     database.add_schedule_to_db(20262, 2026, "Saudi: Jeddah", False, 12, 1)
     database.add_constructor_to_db("Ferrari", "Italian")
     cid = database.get_constructor_id("Ferrari")
-    database.add_drivers_to_db(16, "LEC", "Charles", "Leclerc", "Ferrari", "http://img", 100.0, "Monegasque")
+    database.add_drivers_to_db(16, "LEC", "Charles", "Leclerc", "Ferrari", "http://img", "Monegasque")
     database.add_race_to_db(
-        1, 16, cid, 3, 1, [database.Stint(tire="SOFT", laps=50)], 2, 50, "Finished"
+        20261, 16, cid, 3, 1, [database.Stint(tire="SOFT", laps=50)], 2, 50, "Finished"
     )
 
     resp = client.get("/f1")

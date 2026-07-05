@@ -22,12 +22,13 @@ class Stint(BaseModel):
 
 class Driver(BaseModel):
     id: int
-    broadcast_name: str
+    broadcast_name: Optional[str] = None
     first_name: str
     last_name: str
-    constructor_id: int
+    constructor_id: Optional[int] = None
+    constructor_name: Optional[str] = None
     url: str
-    points: float
+    points: Optional[float] = None
     nationality: str
 
 class Result(BaseModel):
@@ -50,6 +51,7 @@ class Constructor(BaseModel):
     driver_1_id: Optional[int] = None
     driver_2_id: Optional[int] = None
     nationality: str
+    points: Optional[float]
 
 def init_db(conn=None):  # Allow passing a connection
     supplied_conn = bool(conn)
@@ -75,7 +77,6 @@ def init_db(conn=None):  # Allow passing a connection
              last_name TEXT NOT NULL,
              constructor_id INTEGER NOT NULL,
              url TEXT NOT NULL,
-             points FLOAT NOT NULL,
              nationality TEXT NOT NULL);
         """)
         c.execute("""
@@ -101,13 +102,13 @@ def init_db(conn=None):  # Allow passing a connection
         c.execute("""
             CREATE TABLE IF NOT EXISTS driver_standings
             (id INTEGER PRIMARY KEY,
-             name TEXT NOT NULL,
+             year INTEGER NOT NULL,
              points FLOAT NOT NULL);
         """)
         c.execute("""
             CREATE TABLE IF NOT EXISTS constructor_standings
             (id INTEGER PRIMARY KEY,
-             name TEXT NOT NULL,
+             year INTEGER NOT NULL,
              points FLOAT NOT NULL);
         """)
         conn.commit()
@@ -165,6 +166,32 @@ def add_constructor_to_db(
         )
         conn.commit()
 
+def add_driver_standings_to_db(
+    id: int,
+    year: int,
+    points: float,
+):
+    with sqlite3.connect(DATABASE_NAME) as conn:
+        c = conn.cursor()
+        c.execute(
+            "INSERT OR IGNORE INTO driver_standings (id, year, points) VALUES (?, ?, ?)",
+            (id, year, points)
+        )
+        conn.commit()
+
+def add_constructor_standings_to_db(
+    id: int,
+    year: int,
+    points: float,
+):
+    with sqlite3.connect(DATABASE_NAME) as conn:
+        c = conn.cursor()
+        c.execute(
+            "INSERT OR IGNORE INTO constructor_standings (id, year, points) VALUES (?, ?, ?)",
+            (id, year, points)
+        )
+        conn.commit()
+
 def add_drivers_to_db(
     id: int,
     broadcast_name: str,
@@ -172,15 +199,14 @@ def add_drivers_to_db(
     last_name: str,
     constructor_name: str,
     url: str,
-    points: int,
     nationality: str
 ):
     with sqlite3.connect(DATABASE_NAME) as conn:
-        constructor_id = get_constructor_id(constructor_name[0])
+        constructor_id = get_constructor_id(constructor_name)
         c = conn.cursor()
         c.execute(
-            "INSERT OR IGNORE INTO drivers (id, broadcast_name, first_name, last_name, constructor_id, url, points, nationality) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            (id, broadcast_name, first_name, last_name, constructor_id, url, points, nationality)
+            "INSERT OR IGNORE INTO drivers (id, broadcast_name, first_name, last_name, constructor_id, url, nationality) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (id, broadcast_name, first_name, last_name, constructor_id, url, nationality)
         )
         c.execute("SELECT driver_1_id, driver_2_id FROM constructors WHERE id = ?", (constructor_id,))
         row = c.fetchone()
@@ -219,17 +245,7 @@ def get_races(date: datetime.date) -> List[F1Race]:
 
         return races
 
-def get_driver(id: int) -> Optional[Driver]:
-    with sqlite3.connect(DATABASE_NAME) as conn:
-        c = conn.cursor()
-        c.execute("SELECT * FROM drivers WHERE id = ?", (id,))
-        row = c.fetchone()
-        if row:
-            return Driver(id=row[0], broadcast_name=row[1], first_name=row[2], last_name=row[3], constructor_id=row[4], url=row[5], points=row[6], nationality=row[7])
-        return None
-
 def get_constructor_id(key) -> int:
-    # Dispatch on type: a str is a constructor name, an int is a driver number.
     with sqlite3.connect(DATABASE_NAME) as conn:
         c = conn.cursor()
         if isinstance(key, str):
@@ -259,6 +275,48 @@ def get_basic_results(round: int):
             for row in c.fetchall()
         ]
         return results
+
+def get_driver(id: int) -> Optional[Driver]:
+    with sqlite3.connect(DATABASE_NAME) as conn:
+        c = conn.cursor()
+        c.execute("SELECT * FROM drivers WHERE id = ?", (id,))
+        row = c.fetchone()
+        if row:
+            return Driver(id=row[0], broadcast_name=row[1], first_name=row[2], last_name=row[3], constructor_id=row[4], url=row[5], nationality=row[6])
+        return None
+    
+def get_driver_standings(year: int):
+    with sqlite3.connect(DATABASE_NAME) as conn:
+        c = conn.cursor()
+        c.execute("""
+                  SELECT ds.id, d.first_name, d.last_name, c.name, d.url, ds.points, d.nationality 
+                  FROM driver_standings ds 
+                  JOIN drivers d ON ds.id = d.id
+                  JOIN constructors c ON d.constructor_id = c.id
+                  WHERE year = ?
+                  ORDER BY ds.points DESC
+                  """, (year,))
+        standings = [
+            Driver(id=row[0], first_name=row[1], last_name=row[2], constructor_name=row[3], url=row[4], points=row[5], nationality=row[6])
+            for row in c.fetchall()
+        ]
+        return standings
+    
+def get_constructor_standings(year: int):
+    with sqlite3.connect(DATABASE_NAME) as conn:
+        c = conn.cursor()
+        c.execute("""
+                  SELECT cs.id, c.name, c.nationality, cs.points
+                  FROM constructor_standings cs 
+                  JOIN constructors c ON cs.id = c.id
+                  WHERE year = ?
+                  ORDER BY cs.points DESC
+                  """, (year,))
+        standings = [
+            Constructor(id=row[0], name=row[1], nationality=row[2], points=row[3])
+            for row in c.fetchall()
+        ]
+        return standings
 
 
 #Housekeeping functions

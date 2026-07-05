@@ -38,8 +38,8 @@ def test_get_races_returns_past_races_and_next(db):
 
     races = database.get_races(datetime.date(2026, 6, 1))
 
-    assert [r.round for r in races] == [1, 2, 3]
-    assert races[-2].round == 2
+    assert [r.round for r in races] == [20261, 20262, 20263]
+    assert races[-2].round == 20262
 
 
 def test_get_races_raises_when_no_past_races(db):
@@ -71,7 +71,7 @@ def test_driver_add_lookup_and_type_dispatch(db):
     cid = database.get_constructor_id("Ferrari")
 
     assert not database.drivers_exist()
-    database.add_drivers_to_db(16, "LEC", "Charles", "Leclerc", "Ferrari", "http://img/lec", 100.0, "Monegasque")
+    database.add_drivers_to_db(16, "LEC", "Charles", "Leclerc", "Ferrari", "http://img/lec", "Monegasque")
     assert database.drivers_exist()
 
     d = database.get_driver(16)
@@ -88,8 +88,8 @@ def test_driver_add_lookup_and_type_dispatch(db):
 def test_two_drivers_fill_both_constructor_slots(db):
     database.add_constructor_to_db("Ferrari", "Italian")
     cid = database.get_constructor_id("Ferrari")
-    database.add_drivers_to_db(16, "LEC", "Charles", "Leclerc", "Ferrari", "u", 100.0, "Monegasque")
-    database.add_drivers_to_db(44, "HAM", "Lewis", "Hamilton", "Ferrari", "u", 90.0, "British")
+    database.add_drivers_to_db(16, "LEC", "Charles", "Leclerc", "Ferrari", "u", "Monegasque")
+    database.add_drivers_to_db(44, "HAM", "Lewis", "Hamilton", "Ferrari", "u", "British")
 
     conn = _connect(db)
     d1, d2 = conn.execute(
@@ -99,11 +99,11 @@ def test_two_drivers_fill_both_constructor_slots(db):
     assert {d1, d2} == {16, 44}
 
 
-def test_adding_same_driver_twice_is_idempotent(db):
+def test_adding_same_driver_twice_does_not_duplicate(db):
     database.add_constructor_to_db("Ferrari", "Italian")
     cid = database.get_constructor_id("Ferrari")
-    database.add_drivers_to_db(16, "LEC", "Charles", "Leclerc", "Ferrari", "u", 100.0, "Monegasque")
-    database.add_drivers_to_db(16, "LEC", "Charles", "Leclerc", "Ferrari", "u", 100.0, "Monegasque")
+    database.add_drivers_to_db(16, "LEC", "Charles", "Leclerc", "Ferrari", "u", "Monegasque")
+    database.add_drivers_to_db(16, "LEC", "Charles", "Leclerc", "Ferrari", "u", "Monegasque")
 
     conn = _connect(db)
     d1, d2 = conn.execute(
@@ -116,7 +116,7 @@ def test_adding_same_driver_twice_is_idempotent(db):
 
 def test_clear_drivers(db):
     database.add_constructor_to_db("Ferrari", "Italian")
-    database.add_drivers_to_db(16, "LEC", "Charles", "Leclerc", "Ferrari", "u", 100.0, "Monegasque")
+    database.add_drivers_to_db(16, "LEC", "Charles", "Leclerc", "Ferrari", "u", "Monegasque")
     assert database.drivers_exist()
     database.clear_drivers()
     assert not database.drivers_exist()
@@ -125,7 +125,7 @@ def test_clear_drivers(db):
 def test_results_flow(db):
     database.add_constructor_to_db("Ferrari", "Italian")
     cid = database.get_constructor_id("Ferrari")
-    database.add_drivers_to_db(16, "LEC", "Charles", "Leclerc", "Ferrari", "http://img", 100.0, "Monegasque")
+    database.add_drivers_to_db(16, "LEC", "Charles", "Leclerc", "Ferrari", "http://img", "Monegasque")
 
     assert not database.results_exist_for_round(1)
     stints = [database.Stint(tire="SOFT", laps=20), database.Stint(tire="HARD", laps=30)]
@@ -142,3 +142,21 @@ def test_results_flow(db):
 
     database.clear_results_for_round(1)
     assert not database.results_exist_for_round(1)
+
+
+def test_standings(db):
+    database.add_constructor_to_db("McLaren", "British")
+    database.add_drivers_to_db(1, "NOR", "Lando", "Norris", "McLaren", "u", "British")
+    database.add_driver_standings_to_db(1, 2026, 100.0)
+    database.add_constructor_standings_to_db(1, 2026, 150.0)
+    results = database.get_driver_standings(2026)
+    print(results)
+    assert results[0].points == 100.0
+    assert results[0].id == 1
+    assert results[0].constructor_name == 'McLaren'
+    assert results[0].url == 'u'
+    results1 = database.get_constructor_standings(2026)
+    assert results1[0].points == 150.0
+    assert results1[0].id == 1
+    assert results1[0].name == 'McLaren'
+    assert results1[0].nationality == 'British'

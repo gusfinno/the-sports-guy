@@ -10,7 +10,7 @@ import time
 import httpx
 import os
 from dotenv import load_dotenv
-from database import get_basic_results, init_db, get_races, add_schedule_to_db, schedule_exists_for_year, add_drivers_to_db, drivers_exist, clear_drivers, add_race_to_db, get_constructor_id, get_driver, Stint, results_exist_for_round, clear_results_for_round, add_constructor_to_db, constructors_exist
+from database import add_constructor_standings_to_db, add_driver_standings_to_db, get_basic_results, get_constructor_standings, get_driver_standings, init_db, get_races, add_schedule_to_db, schedule_exists_for_year, add_drivers_to_db, drivers_exist, clear_drivers, add_race_to_db, get_constructor_id, Stint, results_exist_for_round, clear_results_for_round, add_constructor_to_db, constructors_exist
 import fastf1
 from fastf1.ergast import Ergast
 import pandas as pd
@@ -42,8 +42,23 @@ app = FastAPI(lifespan=lifespan)
 templates = Jinja2Templates(directory="templates")
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
-def leaderboard():
+def load_leaderboard():
     standings = ergast.get_driver_standings(season='current')
+    year = datetime.now().year
+    for _, driver in standings.iterrow():
+        add_driver_standings_to_db(
+            driver['driverNumber'],
+            year,
+            driver['points']
+        )
+    standings = ergast.get_constructor_standings(season='current')
+    year = datetime.now().year
+    for _, constructor in standings.iterrow():
+        add_constructor_standings_to_db(
+            constructor['constructorName'],
+            year,
+            constructor['points']
+        )
 
 def load_race_data(round1: int, year: int, location: str):
     session = fastf1.get_session(year, location, 'Race')
@@ -102,9 +117,8 @@ def load_driver_data(round1: int, year: int, location: str):
             driver_row['BroadcastName'], 
             driver_row['FirstName'], 
             driver_row['LastName'], 
-            standings.loc[standings['driverNumber'] == int(driver_row['DriverNumber']), 'constructorNames'].values[0], 
+            standings.loc[standings['driverNumber'] == int(driver_row['DriverNumber']), 'constructorNames'].values[0][0],
             driver_row['HeadshotUrl'], 
-            float(standings.loc[standings['driverNumber'] == int(driver_row['DriverNumber']), 'points'].iloc[0]),
             standings.loc[standings['driverNumber'] == int(driver_row['DriverNumber']), 'driverNationality'].values[0]
             )
 
@@ -152,17 +166,22 @@ async def home(request: Request):
 async def f1(request: Request):
     races=get_races(datetime.now())
     load_constructor_data()
+    load_leaderboard()
     load_driver_data(races[-2].round, races[-2].year, races[-2].location.split(": ")[0])
     if not results_exist_for_round(races[-2].round):
         load_race_data(races[-2].round, races[-2].year, races[-2].location.split(": ")[0])
     
     results = get_basic_results(races[-2].round)
+    driver_standings = get_driver_standings(datetime.now().year)
+    constructor_standings = get_constructor_standings(datetime.now().year)
 
     return templates.TemplateResponse(
         request=request,
         name="f1.html",
         context={"races": races,
-                 "results": results},
+                 "results": results,
+                 "driver_standings": driver_standings,
+                 "constructor_standings": constructor_standings},
         
     )
 
