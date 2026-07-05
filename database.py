@@ -28,6 +28,7 @@ class Driver(BaseModel):
     constructor_id: int
     url: str
     points: float
+    nationality: str
 
 class Result(BaseModel):
     round: int
@@ -48,6 +49,7 @@ class Constructor(BaseModel):
     name: str
     driver_1_id: Optional[int] = None
     driver_2_id: Optional[int] = None
+    nationality: str
 
 def init_db(conn=None):  # Allow passing a connection
     supplied_conn = bool(conn)
@@ -73,7 +75,8 @@ def init_db(conn=None):  # Allow passing a connection
              last_name TEXT NOT NULL,
              constructor_id INTEGER NOT NULL,
              url TEXT NOT NULL,
-             points FLOAT NOT NULL);
+             points FLOAT NOT NULL,
+             nationality TEXT NOT NULL);
         """)
         c.execute("""
             CREATE TABLE IF NOT EXISTS results
@@ -92,7 +95,20 @@ def init_db(conn=None):  # Allow passing a connection
             (id INTEGER PRIMARY KEY,
              name TEXT NOT NULL,
              driver_1_id INTEGER,
-             driver_2_id INTEGER);
+             driver_2_id INTEGER,
+             nationality TEXT NOT NULL);
+        """)
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS driver_standings
+            (id INTEGER PRIMARY KEY,
+             name TEXT NOT NULL,
+             points FLOAT NOT NULL);
+        """)
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS constructor_standings
+            (id INTEGER PRIMARY KEY,
+             name TEXT NOT NULL,
+             points FLOAT NOT NULL);
         """)
         conn.commit()
     finally:
@@ -137,6 +153,18 @@ def add_schedule_to_db(
         )
         conn.commit()
 
+def add_constructor_to_db(
+    name: str,
+    nationality: str
+):
+    with sqlite3.connect(DATABASE_NAME) as conn:
+        c = conn.cursor()
+        c.execute(
+            "INSERT OR IGNORE INTO constructors (name, nationality) VALUES (?, ?)",
+            (name, nationality)
+        )
+        conn.commit()
+
 def add_drivers_to_db(
     id: int,
     broadcast_name: str,
@@ -144,26 +172,23 @@ def add_drivers_to_db(
     last_name: str,
     constructor_name: str,
     url: str,
-    points: int
+    points: int,
+    nationality: str
 ):
     with sqlite3.connect(DATABASE_NAME) as conn:
+        constructor_id = get_constructor_id(constructor_name[0])
         c = conn.cursor()
         c.execute(
-            "SELECT id FROM constructors WHERE name = ?", (constructor_name,))
+            "INSERT OR IGNORE INTO drivers (id, broadcast_name, first_name, last_name, constructor_id, url, points, nationality) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (id, broadcast_name, first_name, last_name, constructor_id, url, points, nationality)
+        )
+        c.execute("SELECT driver_1_id, driver_2_id FROM constructors WHERE id = ?", (constructor_id,))
         row = c.fetchone()
-        if row:
-            constructor_id = row[0]
-        else:
-            c.execute(
-            "INSERT INTO constructors (name, driver_1_id) VALUES (?, ?)", (constructor_name, id))
-            constructor_id = c.lastrowid
-        c.execute(
-            "INSERT OR IGNORE INTO drivers (id, broadcast_name, first_name, last_name, constructor_id, url, points) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (id, broadcast_name, first_name, last_name, constructor_id, url, points)
-        )
-        c.execute(
-            "UPDATE constructors SET driver_2_id = ? WHERE id = ?", (id, constructor_id)
-        )
+        if row and id not in (row[0], row[1]):
+            if row[0] is None:
+                c.execute("UPDATE constructors SET driver_1_id = ? WHERE id = ?", (id, constructor_id))
+            else:
+                c.execute("UPDATE constructors SET driver_2_id = ? WHERE id = ?", (id, constructor_id))
         conn.commit()
     
 
@@ -174,7 +199,7 @@ def get_races(date: datetime.date) -> List[F1Race]:
     with sqlite3.connect(DATABASE_NAME) as conn:
         c = conn.cursor()
 
-        c.execute("SELECT * FROM f1_races WHERE year = ? AND (month < ?) OR (month == ? AND day <= ?) ORDER BY round ASC", (date.year, date.month, date.month, date.day))
+        c.execute("SELECT * FROM f1_races WHERE year = ? AND (month < ? OR (month == ? AND day <= ?)) ORDER BY round ASC", (date.year, date.month, date.month, date.day))
         races = [
             F1Race(
                 round=row[0], year=row[1], location=row[2], sprint=row[3], month=row[4], day=row[5]
@@ -200,20 +225,17 @@ def get_driver(id: int) -> Optional[Driver]:
         c.execute("SELECT * FROM drivers WHERE id = ?", (id,))
         row = c.fetchone()
         if row:
-            return Driver(id=row[0], broadcast_name=row[1], first_name=row[2], last_name=row[3], constructor_id=row[4], url=row[5], points=row[6])
+            return Driver(id=row[0], broadcast_name=row[1], first_name=row[2], last_name=row[3], constructor_id=row[4], url=row[5], points=row[6], nationality=row[7])
         return None
 
-def get_driver_image(id: int):
+def get_constructor_id(key) -> int:
+    # Dispatch on type: a str is a constructor name, an int is a driver number.
     with sqlite3.connect(DATABASE_NAME) as conn:
         c = conn.cursor()
-        c.execute("SELECT url FROM drivers WHERE id = ?", (id,))
-        result = c.fetchone()
-        return result[0] if result else None
-
-def get_constructor_id(driver_id: int) -> int:
-    with sqlite3.connect(DATABASE_NAME) as conn:
-        c = conn.cursor()
-        c.execute("SELECT constructor_id FROM drivers WHERE id = ?", (driver_id,))
+        if isinstance(key, str):
+            c.execute("SELECT id FROM constructors WHERE name = ?", (key,))
+        else:
+            c.execute("SELECT constructor_id FROM drivers WHERE id = ?", (key,))
         result = c.fetchone()
         return result[0] if result else 0
 
@@ -255,7 +277,13 @@ def results_exist_for_round(round: int) -> bool:
 def drivers_exist() -> bool:
     with sqlite3.connect(DATABASE_NAME) as conn:
         c = conn.cursor()
-        c.execute("SELECT * FROM drivers LIMIT 1")
+        c.execute("SELECT 1 FROM drivers LIMIT 1")
+        return c.fetchone() is not None
+    
+def constructors_exist() -> bool:
+    with sqlite3.connect(DATABASE_NAME) as conn:
+        c = conn.cursor()
+        c.execute("SELECT 1 FROM constructors LIMIT 1")
         return c.fetchone() is not None
 
 def clear_drivers():

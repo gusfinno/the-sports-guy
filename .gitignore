@@ -1,3 +1,9 @@
+# macOS
+.DS_Store
+
+# Local database (derived data)
+sports.db
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

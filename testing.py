@@ -14,4 +14,8 @@ ergast = Ergast(
 )
 standings = ergast.get_driver_standings(season='current')
 standings = standings.content[0]
-print(standings.loc[standings['driverNumber'] == 44, 'points'].iloc[0])  # Get points for driver number 44
+
+# Get current driver standings
+standings = ergast.get_driver_standings(season='current')
+standings = standings.content[0]
+print(standings.loc[standings['driverNumber'] == 44])
