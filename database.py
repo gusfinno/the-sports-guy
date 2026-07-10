@@ -3,7 +3,7 @@ import json
 from typing import List
 from pydantic import BaseModel
 from typing import Optional
-import datetime
+from datetime import datetime
 
 DATABASE_NAME = "sports.db"
 
@@ -81,7 +81,8 @@ def init_db(conn=None):  # Allow passing a connection
         """)
         c.execute("""
             CREATE TABLE IF NOT EXISTS results
-            (round INTEGER NOT NULL,
+            (id INTEGER PRIMARY KEY,
+             round INTEGER NOT NULL,
              driver_id INTEGER NOT NULL,
              constructor_id INTEGER NOT NULL,
              grid_position INTEGER NOT NULL,
@@ -103,13 +104,15 @@ def init_db(conn=None):  # Allow passing a connection
             CREATE TABLE IF NOT EXISTS driver_standings
             (id INTEGER PRIMARY KEY,
              year INTEGER NOT NULL,
-             points FLOAT NOT NULL);
+             points FLOAT NOT NULL,
+             last_updated INTEGER);
         """)
         c.execute("""
             CREATE TABLE IF NOT EXISTS constructor_standings
             (id INTEGER PRIMARY KEY,
              year INTEGER NOT NULL,
-             points FLOAT NOT NULL);
+             points FLOAT NOT NULL,
+             last_updated INTEGER);
         """)
         conn.commit()
     finally:
@@ -253,6 +256,17 @@ def get_races(date: datetime.date):
 
         return past_races, future_races
 
+def get_1_race():
+    date = datetime.now()
+    with sqlite3.connect(DATABASE_NAME) as conn:
+        c = conn.cursor()
+
+        c.execute("SELECT round FROM f1_races WHERE year = ? AND (month < ? OR (month == ? AND day < ?)) ORDER BY round ASC LIMIT 1", (date.year, date.month, date.month, date.day))
+        row = c.fetchone()
+        most_recent_round = row[0]
+            
+        return most_recent_round
+
 def get_constructor_id(key) -> int:
     with sqlite3.connect(DATABASE_NAME) as conn:
         c = conn.cursor()
@@ -363,3 +377,10 @@ def clear_results_for_round(round: int):
         c = conn.cursor()
         c.execute("DELETE FROM results WHERE round = ?", (round,))
         conn.commit()
+
+def leader_out_of_date():
+    round = get_1_race()
+    with sqlite3.connect(DATABASE_NAME) as conn:
+        c = conn.cursor()
+        c.execute("SELECT 1 FROM driver_standings WHERE last_updated = ? LIMIT 1", (round,))
+        return c.fetchone() is not None

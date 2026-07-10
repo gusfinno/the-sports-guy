@@ -10,13 +10,15 @@ import time
 import httpx
 import os
 from dotenv import load_dotenv
-from database import add_constructor_standings_to_db, add_driver_standings_to_db, get_basic_results, get_constructor_standings, get_driver_standings, init_db, get_races, add_schedule_to_db, schedule_exists_for_year, add_drivers_to_db, drivers_exist, clear_drivers, add_race_to_db, get_constructor_id, Stint, results_exist_for_round, clear_results_for_round, add_constructor_to_db, constructors_exist
+from database import add_constructor_standings_to_db, add_driver_standings_to_db, get_basic_results, get_constructor_standings, get_driver_standings, init_db, get_races, add_schedule_to_db, schedule_exists_for_year, add_drivers_to_db, drivers_exist, clear_drivers, add_race_to_db, get_constructor_id, Stint, results_exist_for_round, clear_results_for_round, add_constructor_to_db, constructors_exist, leader_out_of_date
 import fastf1
 from fastf1.ergast import Ergast
 import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
 import requests
+import threading
+from fastapi.responses import JSONResponse
 fastf1.Cache.enable_cache('fastf1-cache')  # Enable caching for faster data retrieval
 
 # Configure logging
@@ -29,12 +31,15 @@ ergast = Ergast(
     limit=None
 )
 
+race_jobs = {}
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup work: initialise the database and load this season's schedule.
     # Kept out of module import so importing `main` (e.g. in tests) has no side effects.
     init_db()
     load_schedule_data()
+    load_constructor_data()
     yield
 
 app = FastAPI(lifespan=lifespan)
@@ -43,69 +48,74 @@ templates = Jinja2Templates(directory="templates")
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 def load_leaderboard():
-    standings = ergast.get_driver_standings(season='current')
-    standings = standings.content[0]
-    year = datetime.now().year
-    for _, driver in standings.iterrows():
-        add_driver_standings_to_db(
-            int(driver['driverNumber']),
-            year,
-            float(driver['points'])
-        )
-    standings = ergast.get_constructor_standings(season='current')
-    standings = standings.content[0]
-    for _, constructor in standings.iterrows():
-        add_constructor_standings_to_db(
-            constructor['constructorName'],
-            year,
-            float(constructor['points'])
-        )
+    if not leader_out_of_date():
+        standings = ergast.get_driver_standings(season='current')
+        standings = standings.content[0]
+        year = datetime.now().year
+        for _, driver in standings.iterrows():
+            add_driver_standings_to_db(
+                int(driver['driverNumber']),
+                year,
+                float(driver['points'])
+            )
+        standings = ergast.get_constructor_standings(season='current')
+        standings = standings.content[0]
+        for _, constructor in standings.iterrows():
+            add_constructor_standings_to_db(
+                constructor['constructorName'],
+                year,
+                float(constructor['points'])
+            )
 
 def load_race_data(round1: int, year: int, location: str):
-    session = fastf1.get_session(year, location, 'Race')
-    session.load()
-    results = session.results
-    laps = session.laps
+    try:
+        session = fastf1.get_session(year, location, 'Race')
+        session.load()
+        results = session.results
+        laps = session.laps
 
-    for _, driver_row in results.iterrows():
-        driver_id = int(driver_row['DriverNumber'])
-        constructor_id = get_constructor_id(driver_id)
+        for _, driver_row in results.iterrows():
+            driver_id = int(driver_row['DriverNumber'])
+            constructor_id = get_constructor_id(driver_id)
 
-        grid_pos = driver_row['GridPosition']
-        grid_position = str(int(grid_pos)) if not pd.isna(grid_pos) else 0
+            grid_pos = driver_row['GridPosition']
+            grid_position = str(int(grid_pos)) if not pd.isna(grid_pos) else 0
 
-        finish_pos = driver_row['Position']
-        position = str(int(finish_pos)) if not pd.isna(finish_pos) else 23
+            finish_pos = driver_row['Position']
+            position = str(int(finish_pos)) if not pd.isna(finish_pos) else 23
 
-        status = str(driver_row['Status'])
+            status = str(driver_row['Status'])
 
-        driver_laps = laps.pick_drivers(driver_row['DriverNumber'])
+            driver_laps = laps.pick_drivers(driver_row['DriverNumber'])
 
-        stints = driver_laps[["Driver", "Stint", "Compound", "LapNumber"]]
-        stints = stints.groupby(["Driver", "Stint", "Compound"])
-        stints = stints.count().reset_index()
-        stints = [Stint(tire=row['Compound'], laps=row['LapNumber']) for _, row in stints.iterrows()]
+            stints = driver_laps[["Driver", "Stint", "Compound", "LapNumber"]]
+            stints = stints.groupby(["Driver", "Stint", "Compound"])
+            stints = stints.count().reset_index()
+            stints = [Stint(tire=row['Compound'], laps=row['LapNumber']) for _, row in stints.iterrows()]
 
-        lap_positions = driver_laps['Position'].dropna()
-        overtakes = int((lap_positions.diff() < 0).sum())
+            lap_positions = driver_laps['Position'].dropna()
+            overtakes = int((lap_positions.diff() < 0).sum())
 
-        total_laps = len(driver_laps)
+            total_laps = len(driver_laps)
 
-        add_race_to_db(
-            round1,
-            driver_id,
-            constructor_id,
-            grid_position,
-            position,
-            stints,
-            overtakes,
-            total_laps,
-            status,
-        )
+            add_race_to_db(
+                round1,
+                driver_id,
+                constructor_id,
+                grid_position,
+                position,
+                stints,
+                overtakes,
+                total_laps,
+                status,
+            )
+        race_jobs[round1] = "ready"
+    except Exception:
+        logging.exception("race load failed")
+        race_jobs[round1] = "error"
+
 
 def load_driver_data(round1: int, year: int, location: str):
-    if drivers_exist():
-        return
     session = fastf1.get_session(year, location, 'Race')
     session.load()
     results = session.results
@@ -152,7 +162,13 @@ def load_schedule_data():
                 add_schedule_to_db(int(str(event.year)+str(event.RoundNumber)), event.year, (event.Country + ": "+ event.Location), format, int(str(event.EventDate)[5:7]), int(str(event.EventDate)[8:10]))
 
 
-
+def ensure_race_loaded(race) -> bool:
+    if results_exist_for_round(race.round):
+        return True
+    if race_jobs.get(race.round) != "loading":
+        race_jobs[race.round] = "loading"
+        threading.Thread(target=load_race_data, args=(race.round, race.year, race.location.split(": ")[0]), daemon=True, name="Loading Race Data").start()
+    return False
 
 
 
@@ -166,19 +182,26 @@ async def home(request: Request):
 @app.get("/f1")
 async def f1(request: Request):
     past_races, future_races = get_races(datetime.now())
-    load_constructor_data()
     load_leaderboard()
-    load_driver_data(past_races[-1].round, past_races[-1].year, past_races[-1].location.split(": ")[0])
+    loading = False
+    loading2 = False
+    results = []
+    results2 = None
+    if not drivers_exist():
+        load_driver_data(past_races[-1].round, past_races[-1].year, past_races[-1].location.split(": ")[0])
     if not results_exist_for_round(past_races[-1].round):
-        load_race_data(past_races[-1].round, past_races[-1].year, past_races[-1].location.split(": ")[0])
-    
-    results = get_basic_results(past_races[-1].round)
+        loading = True
+        ensure_race_loaded(past_races[-1])
+    else:
+        results = get_basic_results(past_races[-1].round)
     results2 = None
     if not future_races:
-        results2 = get_basic_results(past_races[-1].round)
+        results2 = results
         if not results_exist_for_round(past_races[-2].round):
-            load_race_data(past_races[-2].round, past_races[-2].year, past_races[-2].location.split(": ")[0])
-        results = get_basic_results(past_races[-2].round)
+            loading2 = loading
+            ensure_race_loaded(past_races[-2])
+        else:
+            results = get_basic_results(past_races[-2].round)
     driver_standings = get_driver_standings(datetime.now().year)
     constructor_standings = get_constructor_standings(datetime.now().year)
 
@@ -190,10 +213,18 @@ async def f1(request: Request):
                  "results": results,
                  "results2": results2,
                  "driver_standings": driver_standings,
-                 "constructor_standings": constructor_standings},
+                 "constructor_standings": constructor_standings,
+                 "loading": loading,
+                 "loading2": loading2},
         
     )
 
+
+@app.get("/f1/status/{round1}")
+async def f1_status(round1: int):
+    placeholder = results_exist_for_round(round1)
+    return JSONResponse({"ready": placeholder,
+                         "error": race_jobs.get(round1) == "error"})
 
 
 
