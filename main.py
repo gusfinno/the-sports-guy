@@ -10,7 +10,7 @@ import time
 import httpx
 import os
 from dotenv import load_dotenv
-from database import add_constructor_standings_to_db, add_driver_standings_to_db, get_basic_results, get_constructor_standings, get_driver_standings, init_db, get_races, add_schedule_to_db, schedule_exists_for_year, add_drivers_to_db, drivers_exist, clear_drivers, add_race_to_db, get_constructor_id, Stint, results_exist_for_round, clear_results_for_round, add_constructor_to_db, constructors_exist, leader_out_of_date
+from database import add_constructor_standings_to_db, add_driver_standings_to_db, get_basic_results, get_constructor_standings, get_driver_standings, init_db, get_races, add_schedule_to_db, schedule_exists_for_year, add_drivers_to_db, drivers_exist, clear_drivers, add_race_to_db, get_constructor_id, Stint, results_exist_for_round, clear_results_for_round, add_constructor_to_db, constructors_exist, leader_up_to_date
 import fastf1
 from fastf1.ergast import Ergast
 import pandas as pd
@@ -48,7 +48,7 @@ templates = Jinja2Templates(directory="templates")
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 def load_leaderboard():
-    if not leader_out_of_date():
+    if not leader_up_to_date():
         standings = ergast.get_driver_standings(season='current')
         standings = standings.content[0]
         year = datetime.now().year

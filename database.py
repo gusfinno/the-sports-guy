@@ -378,7 +378,7 @@ def clear_results_for_round(round: int):
         c.execute("DELETE FROM results WHERE round = ?", (round,))
         conn.commit()
 
-def leader_out_of_date():
+def leader_up_to_date():
     round = get_1_race()
     with sqlite3.connect(DATABASE_NAME) as conn:
         c = conn.cursor()

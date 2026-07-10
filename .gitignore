@@ -4,6 +4,8 @@
 # Local database (derived data)
 sports.db
 
+notes.txt
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
