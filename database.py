@@ -1,6 +1,7 @@
 import sqlite3
 import json
 from typing import List
+from matplotlib.pyplot import table
 from pydantic import BaseModel
 from typing import Optional
 from datetime import datetime
@@ -173,12 +174,13 @@ def add_driver_standings_to_db(
     id: int,
     year: int,
     points: float,
+    round: int,
 ):
     with sqlite3.connect(DATABASE_NAME) as conn:
         c = conn.cursor()
         c.execute(
-            "INSERT OR IGNORE INTO driver_standings (id, year, points) VALUES (?, ?, ?)",
-            (id, year, points)
+            "INSERT OR IGNORE INTO driver_standings (id, year, points, last_updated) VALUES (?, ?, ?, ?)",
+            (id, year, points, round)
         )
         conn.commit()
 
@@ -186,13 +188,43 @@ def add_constructor_standings_to_db(
     name: str,
     year: int,
     points: float,
+    round: int,
 ):
     id = get_constructor_id(name)
     with sqlite3.connect(DATABASE_NAME) as conn:
         c = conn.cursor()
         c.execute(
-            "INSERT OR IGNORE INTO constructor_standings (id, year, points) VALUES (?, ?, ?)",
-            (id, year, points)
+            "INSERT OR IGNORE INTO constructor_standings (id, year, points, last_updated) VALUES (?, ?, ?, ?)",
+            (id, year, points, round)
+        )
+        conn.commit()
+
+def update_driver_standings(
+    id: int,
+    year: int,
+    points: float,
+    round: int,
+):
+    with sqlite3.connect(DATABASE_NAME) as conn:
+        c = conn.cursor()
+        c.execute(
+            f"UPDATE driver_standings SET points = ?, last_updated = ? WHERE id = ? AND year = ?",
+            (points, round, id, year)
+        )
+        conn.commit()
+
+def update_constructor_standings(
+    name: str,
+    year: int,
+    points: float,
+    round: int,
+):
+    id = get_constructor_id(name)
+    with sqlite3.connect(DATABASE_NAME) as conn:
+        c = conn.cursor()
+        c.execute(
+            f"UPDATE constructor_standings SET points = ?, last_updated = ? WHERE id = ? AND year = ?",
+            (points, round, id, year)
         )
         conn.commit()
 
@@ -383,4 +415,4 @@ def leader_up_to_date():
     with sqlite3.connect(DATABASE_NAME) as conn:
         c = conn.cursor()
         c.execute("SELECT 1 FROM driver_standings WHERE last_updated = ? LIMIT 1", (round,))
-        return c.fetchone() is not None
+        return [c.fetchone() is not None, round]
