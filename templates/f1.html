@@ -39,7 +39,7 @@
                                    <p class="font-medium mb-3 animate-pulse">Loading latest race…</p>
                                 {% else %}
                                     {% if past_races[-1] %}
-                                        <p class="font-medium mb-3">{{ past_races[-1].location }}</p>
+                                        <a href='/f1/race/{{ past_races[-1].round }}' class="font-medium mb-3">{{ past_races[-1].location }}</a>
                                         <div class="flex flex-col gap-2">
                                         {% for driver in results[:3] %}
                                             <div class="flex items-center gap-3 bg-blue-400 rounded-lg shadow px-3 py-2">
@@ -60,8 +60,11 @@
                                 {% set fill = future_races[:4] | length >= 4 %}
                                 <div class="flex flex-col {{ 'flex-1 justify-between' if fill else '' }}">
                                     {% for race in future_races[:4] %}
-                                    <div class="w-11/12 bg-blue-200 rounded-lg shadow p-6 ml-auto {{ '' if loop.last else 'mb-5' }}">
+                                    <div class="flex w-11/12 bg-blue-200 rounded-lg shadow p-6 ml-auto {{ '' if loop.last else 'mb-5' }}">
                                         {{ race.location }}  
+                                        <span class="ml-auto text-gray-500">
+                                            {{ race.day }}/{{ race.month }} 
+                                        </span>
                                     </div>
                                     {% endfor %}
                                 </div>

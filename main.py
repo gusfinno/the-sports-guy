@@ -269,6 +269,19 @@ async def f1(request: Request):
         
     )
 
+@app.get("/f1/race/{round1}")
+async def f1_round(round1: int, request: Request):
+    past_races, future_races = get_races(datetime.now())
+    results = get_basic_results(past_races[-1].round)
+    return templates.TemplateResponse(
+            request=request,
+            name="f1.html",
+            context={"past_races": past_races,
+                     "future_races": future_races,
+                     "results": results},
+            
+        )
+
 
 @app.get("/f1/status/{round1}")
 async def f1_status(round1: int):
