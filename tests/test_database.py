@@ -148,8 +148,8 @@ def test_results_flow(db):
 def test_standings(db):
     database.add_constructor_to_db("McLaren", "British")
     database.add_drivers_to_db(1, "NOR", "Lando", "Norris", "McLaren", "u", "British")
-    database.add_driver_standings_to_db(1, 2026, 100.0)
-    database.add_constructor_standings_to_db(1, 2026, 150.0)
+    database.add_driver_standings_to_db(1, 2026, 100.0, 20261)
+    database.add_constructor_standings_to_db(1, 2026, 150.0, 20261)
     results = database.get_driver_standings(2026)
     print(results)
     assert results[0].points == 100.0

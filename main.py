@@ -10,7 +10,7 @@ import time
 import httpx
 import os
 from dotenv import load_dotenv
-from database import add_constructor_standings_to_db, add_driver_standings_to_db, get_basic_results, get_constructor_standings, get_driver_standings, init_db, get_races, add_schedule_to_db, schedule_exists_for_year, add_drivers_to_db, drivers_exist, clear_drivers, add_race_to_db, get_constructor_id, Stint, results_exist_for_round, clear_results_for_round, add_constructor_to_db, constructors_exist, leader_up_to_date, update_driver_standings, update_constructor_standings
+from database import add_constructor_standings_to_db, add_driver_standings_to_db, delete_most_recent_round_for_testing, get_basic_results, get_constructor_standings, get_driver_standings, init_db, get_races, add_schedule_to_db, schedule_exists_for_year, add_drivers_to_db, drivers_exist, clear_drivers, add_race_to_db, get_constructor_id, Stint, results_exist_for_round, clear_results_for_round, add_constructor_to_db, constructors_exist, leader_up_to_date, update_driver_standings, update_constructor_standings
 import fastf1
 from fastf1.ergast import Ergast
 import pandas as pd
@@ -32,6 +32,7 @@ ergast = Ergast(
 )
 
 race_jobs = {}
+ladder_jobs = {}
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -49,50 +50,61 @@ templates = Jinja2Templates(directory="templates")
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 def load_leaderboard():
-    verification, round = leader_up_to_date()
-    if not verification:
-        standings = ergast.get_driver_standings(season='current')
-        standings = standings.content[0]
-        year = datetime.now().year
-        for _, driver in standings.iterrows():
-            add_driver_standings_to_db(
-                int(driver['driverNumber']),
-                year,
-                float(driver['points']),
-                round
-            )
-        standings = ergast.get_constructor_standings(season='current')
-        standings = standings.content[0]
-        for _, constructor in standings.iterrows():
-            add_constructor_standings_to_db(
-                constructor['constructorName'],
-                year,
-                float(constructor['points']),
-                round
-            )
+    try:
+        verification, round = leader_up_to_date()
+        if not verification:
+            standings = ergast.get_driver_standings(season='current')
+            standings = standings.content[0]
+            year = datetime.now().year
+            for _, driver in standings.iterrows():
+                add_driver_standings_to_db(
+                    int(driver['driverNumber']),
+                    year,
+                    float(driver['points']),
+                    round
+                )
+            standings = ergast.get_constructor_standings(season='current')
+            standings = standings.content[0]
+            for _, constructor in standings.iterrows():
+                add_constructor_standings_to_db(
+                    constructor['constructorName'],
+                    year,
+                    float(constructor['points']),
+                    round
+                )
+        ladder_jobs[round] = "ready"
+    except Exception:
+        logging.exception("race load failed")
+        ladder_jobs[round] = "error"
 
 def update_leaderboard():
-    verification, round = leader_up_to_date()
-    if not verification:
-        standings = ergast.get_driver_standings(season='current')
-        standings = standings.content[0]
-        year = datetime.now().year
-        for _, driver in standings.iterrows():
-            update_driver_standings(
-                int(driver['driverNumber']),
-                year,
-                float(driver['points']),
-                round
-            )
-        standings = ergast.get_constructor_standings(season='current')
-        standings = standings.content[0]
-        for _, constructor in standings.iterrows():
-            update_constructor_standings(
-                constructor['constructorName'],
-                year,
-                float(constructor['points']),
-                round
-            )
+    try:
+        verification, round = leader_up_to_date()
+        print(round)
+        if not verification:
+            standings = ergast.get_driver_standings(season='current')
+            standings = standings.content[0]
+            year = datetime.now().year
+            for _, driver in standings.iterrows():
+                update_driver_standings(
+                    int(driver['driverNumber']),
+                    year,
+                    float(driver['points']),
+                    round
+                )
+            standings = ergast.get_constructor_standings(season='current')
+            standings = standings.content[0]
+            for _, constructor in standings.iterrows():
+                update_constructor_standings(
+                    constructor['constructorName'],
+                    year,
+                    float(constructor['points']),
+                    round
+                )
+        ladder_jobs[round] = "ready"
+    except Exception:
+        logging.exception("race load failed")
+        ladder_jobs[round] = "error"
 
 def load_race_data(round1: int, year: int, location: str):
     try:
@@ -197,6 +209,15 @@ def ensure_race_loaded(race) -> bool:
         threading.Thread(target=load_race_data, args=(race.round, race.year, race.location.split(": ")[0]), daemon=True, name="Loading Race Data").start()
     return False
 
+def ensure_ladder_loaded(race) -> bool:
+    validation, round = leader_up_to_date()
+    if validation:
+        return True
+    if ladder_jobs.get(round) != "loading":
+        ladder_jobs[round] = "loading"
+        threading.Thread(target=update_leaderboard, daemon=True, name="Loading Leaderboard Data").start()
+    return False
+
 
 
 @app.get("/")
@@ -210,14 +231,15 @@ async def home(request: Request):
 async def f1(request: Request):
     past_races, future_races = get_races(datetime.now())
     update_leaderboard()
-    loading = False
-    loading2 = False
+    loadingRace1 = False
+    loadingRace2 = False
+    loadingLeaderboard = False
     results = []
     results2 = None
     if not drivers_exist():
         load_driver_data(past_races[-1].round, past_races[-1].year, past_races[-1].location.split(": ")[0])
     if not results_exist_for_round(past_races[-1].round):
-        loading = True
+        loadingRace1 = True
         ensure_race_loaded(past_races[-1])
     else:
         results = get_basic_results(past_races[-1].round)
@@ -225,7 +247,7 @@ async def f1(request: Request):
     if not future_races:
         results2 = results
         if not results_exist_for_round(past_races[-2].round):
-            loading2 = loading
+            loadingRace2 = loadingRace1
             ensure_race_loaded(past_races[-2])
         else:
             results = get_basic_results(past_races[-2].round)
@@ -241,8 +263,9 @@ async def f1(request: Request):
                  "results2": results2,
                  "driver_standings": driver_standings,
                  "constructor_standings": constructor_standings,
-                 "loading": loading,
-                 "loading2": loading2},
+                 "loading": loadingRace1,
+                 "loading2": loadingRace2,
+                 "loadingLeaderboard": loadingLeaderboard},
         
     )
 
@@ -253,6 +276,17 @@ async def f1_status(round1: int):
     return JSONResponse({"ready": placeholder,
                          "error": race_jobs.get(round1) == "error"})
 
+@app.get("/f1/status_ladder/{round1}")
+async def f1_status_ladder(round1: int):
+    placeholder = leader_up_to_date()[0]
+    return JSONResponse({"ready": placeholder,
+                         "error": ladder_jobs.get(round1) == "error"})
+
+@app.post("/f1/delete")
+async def f1_status_ladder():
+    delete_most_recent_round_for_testing()
+    print("Deleted most recent round for testing.")
+    return {"message": f"Done"}
 
 
 if __name__ == "__main__":

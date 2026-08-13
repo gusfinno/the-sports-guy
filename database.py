@@ -293,7 +293,7 @@ def get_1_race():
     with sqlite3.connect(DATABASE_NAME) as conn:
         c = conn.cursor()
 
-        c.execute("SELECT round FROM f1_races WHERE year = ? AND (month < ? OR (month == ? AND day < ?)) ORDER BY round ASC LIMIT 1", (date.year, date.month, date.month, date.day))
+        c.execute("SELECT round FROM f1_races WHERE year = ? AND (month < ? OR (month == ? AND day < ?)) ORDER BY round DESC LIMIT 1", (date.year, date.month, date.month, date.day))
         row = c.fetchone()
         most_recent_round = row[0]
             
@@ -416,3 +416,12 @@ def leader_up_to_date():
         c = conn.cursor()
         c.execute("SELECT 1 FROM driver_standings WHERE last_updated = ? LIMIT 1", (round,))
         return [c.fetchone() is not None, round]
+
+
+def delete_most_recent_round_for_testing():
+    round = get_1_race()
+    with sqlite3.connect(DATABASE_NAME) as conn:
+        c = conn.cursor()
+        c.execute("DELETE FROM results WHERE round = ?", (round,))
+        conn.commit()
+        return

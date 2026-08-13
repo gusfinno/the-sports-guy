@@ -195,6 +195,21 @@
     poll2();
     </script>
     {% endif %}
+    {% if loadingLeaderboard %}
+    <script>
+    async function pollLeaderboard() {
+        const r = await fetch("/f1/status/leaderboard");
+        const s = await r.json();
+        if (s.ready || s.error) { location.reload(); }
+        else { setTimeout(pollLeaderboard, 1000); }
+    }
+    pollLeaderboard();
+    </script>
+    {% endif %}
+
+    <form action="/f1/delete" method="POST">
+        <button type="submit">Delete Most Recent Round</button>
+    </form>
 
 </body>
 </html>
