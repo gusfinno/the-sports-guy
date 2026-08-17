@@ -55,6 +55,18 @@ class Constructor(BaseModel):
     nationality: str
     points: Optional[float]
 
+class Statistics(BaseModel):
+    id: int
+    first_name: str
+    last_name: str
+    url: str
+    overtakes: int
+    poles: int
+    wins: int
+    podiums: int
+    laps: int
+    fastest_laps: int
+
 def init_db(conn=None):  # Allow passing a connection
     supplied_conn = bool(conn)
     if not conn:
@@ -93,7 +105,8 @@ def init_db(conn=None):  # Allow passing a connection
              overtakes INTEGER NOT NULL,
              laps INTEGER NOT NULL,
              status TEXT NOT NULL,
-             time TEXT NOT NULL);
+             time TEXT NOT NULL,
+             fastest_lap INTEGER);
         """)
         c.execute("""
             CREATE TABLE IF NOT EXISTS constructors
@@ -117,7 +130,6 @@ def init_db(conn=None):  # Allow passing a connection
              points FLOAT NOT NULL,
              last_updated INTEGER);
         """)
-        conn.commit()
     finally:
         if not supplied_conn and conn:  # If we opened it, we close it
             conn.close()
@@ -136,13 +148,14 @@ def add_race_to_db(
     overtakes: int,
     laps: int,
     status: int,
-    time: str
+    time: str,
+    fastest_lap: int
 ):  
     with sqlite3.connect(DATABASE_NAME) as conn:
         c = conn.cursor()
         c.execute(
-            "INSERT OR IGNORE INTO results (round, driver_id, constructor_id, grid_position, position, stints, overtakes, laps, status, time) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (round, driver_id, constructor_id, grid_position, position, json.dumps([s.model_dump() for s in stints]), overtakes, laps, status, time)
+            "INSERT OR IGNORE INTO results (round, driver_id, constructor_id, grid_position, position, stints, overtakes, laps, status, time, fastest_lap) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (round, driver_id, constructor_id, grid_position, position, json.dumps([s.model_dump() for s in stints]), overtakes, laps, status, time, fastest_lap)
         )
 
 def add_schedule_to_db(
@@ -202,6 +215,33 @@ def add_constructor_standings_to_db(
         )
         conn.commit()
 
+def add_drivers_to_db(
+    id: int,
+    broadcast_name: str,
+    first_name: str,
+    last_name: str,
+    constructor_name: str,
+    url: str,
+    nationality: str
+):
+    with sqlite3.connect(DATABASE_NAME) as conn:
+        constructor_id = get_constructor_id(constructor_name)
+        c = conn.cursor()
+        c.execute(
+            "INSERT OR IGNORE INTO drivers (id, broadcast_name, first_name, last_name, constructor_id, url, nationality) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (id, broadcast_name, first_name, last_name, constructor_id, url, nationality)
+        )
+        c.execute("SELECT driver_1_id, driver_2_id FROM constructors WHERE id = ?", (constructor_id,))
+        row = c.fetchone()
+        if row and id not in (row[0], row[1]):
+            if row[0] is None:
+                c.execute("UPDATE constructors SET driver_1_id = ? WHERE id = ?", (id, constructor_id))
+            else:
+                c.execute("UPDATE constructors SET driver_2_id = ? WHERE id = ?", (id, constructor_id))
+        conn.commit()
+
+#UPDATE functions
+
 def update_driver_standings(
     id: int,
     year: int,
@@ -229,31 +269,6 @@ def update_constructor_standings(
             f"UPDATE constructor_standings SET points = ?, last_updated = ? WHERE id = ? AND year = ?",
             (points, round, id, year)
         )
-        conn.commit()
-
-def add_drivers_to_db(
-    id: int,
-    broadcast_name: str,
-    first_name: str,
-    last_name: str,
-    constructor_name: str,
-    url: str,
-    nationality: str
-):
-    with sqlite3.connect(DATABASE_NAME) as conn:
-        constructor_id = get_constructor_id(constructor_name)
-        c = conn.cursor()
-        c.execute(
-            "INSERT OR IGNORE INTO drivers (id, broadcast_name, first_name, last_name, constructor_id, url, nationality) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (id, broadcast_name, first_name, last_name, constructor_id, url, nationality)
-        )
-        c.execute("SELECT driver_1_id, driver_2_id FROM constructors WHERE id = ?", (constructor_id,))
-        row = c.fetchone()
-        if row and id not in (row[0], row[1]):
-            if row[0] is None:
-                c.execute("UPDATE constructors SET driver_1_id = ? WHERE id = ?", (id, constructor_id))
-            else:
-                c.execute("UPDATE constructors SET driver_2_id = ? WHERE id = ?", (id, constructor_id))
         conn.commit()
     
 
@@ -302,7 +317,7 @@ def get_1_race():
             
         return most_recent_round
 
-def get_constructor_id(key) -> int:
+def get_constructor_id(key):
     with sqlite3.connect(DATABASE_NAME) as conn:
         c = conn.cursor()
         if isinstance(key, str):
@@ -316,14 +331,14 @@ def get_basic_results(round: int):
     with sqlite3.connect(DATABASE_NAME) as conn:
         c = conn.cursor()
         c.execute("""
-                  SELECT r.round, r.driver_id, d.first_name, d.last_name, c.name, r.grid_position,r.position, r.laps, r.status, d.url, r.stints, r.overtakes, r.time
-                  FROM results r
-                  JOIN drivers
-                   d ON d.id = r.driver_id
-                  JOIN constructors c ON c.id = r.constructor_id
-                  WHERE r.round = ?
-                  ORDER BY r.position ASC
-                  """, (round,))
+            SELECT r.round, r.driver_id, d.first_name, d.last_name, c.name, r.grid_position,r.position, r.laps, r.status, d.url, r.stints, r.overtakes, r.time
+            FROM results r
+            JOIN drivers
+            d ON d.id = r.driver_id
+            JOIN constructors c ON c.id = r.constructor_id
+            WHERE r.round = ?
+            ORDER BY r.position ASC
+            """, (round,))
         results = [
             Result(
                 round=row[0], driver_id=row[1], first_name=row[2], last_name=row[3], constructor_name=row[4], grid_position=row[5], position=row[6], laps=row[7], status=row[8], url=row[9], stints=[Stint(**s) for s in json.loads(row[10])] if row[10] else None, overtakes=row[11], time=row[12]
@@ -346,13 +361,13 @@ def get_driver_standings(year: int):
     with sqlite3.connect(DATABASE_NAME) as conn:
         c = conn.cursor()
         c.execute("""
-                  SELECT ds.id, d.first_name, d.last_name, c.name, d.url, ds.points, d.nationality 
-                  FROM driver_standings ds 
-                  JOIN drivers d ON ds.id = d.id
-                  JOIN constructors c ON d.constructor_id = c.id
-                  WHERE year = ?
-                  ORDER BY ds.points DESC
-                  """, (year,))
+            SELECT ds.id, d.first_name, d.last_name, c.name, d.url, ds.points, d.nationality 
+            FROM driver_standings ds 
+            JOIN drivers d ON ds.id = d.id
+            JOIN constructors c ON d.constructor_id = c.id
+            WHERE year = ?
+            ORDER BY ds.points DESC
+            """, (year,))
         standings = [
             Driver(id=row[0], first_name=row[1], last_name=row[2], constructor_name=row[3], url=row[4], points=row[5], nationality=row[6])
             for row in c.fetchall()
@@ -363,17 +378,45 @@ def get_constructor_standings(year: int):
     with sqlite3.connect(DATABASE_NAME) as conn:
         c = conn.cursor()
         c.execute("""
-                  SELECT cs.id, c.name, c.nationality, cs.points
-                  FROM constructor_standings cs 
-                  JOIN constructors c ON cs.id = c.id
-                  WHERE year = ?
-                  ORDER BY cs.points DESC
-                  """, (year,))
+            SELECT cs.id, c.name, c.nationality, cs.points
+            FROM constructor_standings cs 
+            JOIN constructors c ON cs.id = c.id
+            WHERE year = ?
+            ORDER BY cs.points DESC
+            """, (year,))
         standings = [
             Constructor(id=row[0], name=row[1], nationality=row[2], points=row[3])
             for row in c.fetchall()
         ]
         return standings
+
+def get_broad_statistics(year: int):
+    with sqlite3.connect(DATABASE_NAME) as conn:
+        c = conn.cursor()
+        c.execute("""
+            SELECT r.driver_id,
+                d.first_name,
+                d.last_name,
+                d.url,
+                SUM(r.overtakes),
+                SUM(r.grid_position = 1),
+                SUM(r.position = 1),
+                SUM(r.position <= 3),
+                SUM(r.laps),
+                COALESCE(SUM(r.fastest_lap), 0)
+            FROM results r
+            JOIN f1_races f ON f.round = r.round
+            JOIN drivers d ON d.id = r.driver_id
+            WHERE f.year = ?
+            GROUP BY r.driver_id
+            ORDER BY SUM(r.position = 1) DESC
+            """, (year,))
+        statistics = [
+            Statistics(id=row[0], first_name=row[1], last_name=row[2], url=row[3], overtakes=row[4], poles=row[5], wins=row[6], podiums=row[7], laps=row[8], fastest_laps=row[9])
+            for row in c.fetchall()
+        ]
+        return statistics
+
 
 
 #Housekeeping functions

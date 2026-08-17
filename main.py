@@ -10,7 +10,7 @@ import time
 import httpx
 import os
 from dotenv import load_dotenv
-from database import add_constructor_standings_to_db, add_driver_standings_to_db, delete_most_recent_round_for_testing, get_basic_results, get_constructor_standings, get_driver_standings, init_db, get_races, add_schedule_to_db, schedule_exists_for_year, add_drivers_to_db, drivers_exist, clear_drivers, add_race_to_db, get_constructor_id, Stint, results_exist_for_round, clear_results_for_round, add_constructor_to_db, constructors_exist, leader_up_to_date, update_driver_standings, update_constructor_standings
+from database import add_constructor_standings_to_db, add_driver_standings_to_db, delete_most_recent_round_for_testing, get_basic_results, get_constructor_standings, get_broad_statistics, get_driver_standings, init_db, get_races, add_schedule_to_db, schedule_exists_for_year, add_drivers_to_db, drivers_exist, clear_drivers, add_race_to_db, get_constructor_id, Stint, results_exist_for_round, clear_results_for_round, add_constructor_to_db, constructors_exist, leader_up_to_date, update_driver_standings, update_constructor_standings
 import fastf1
 from fastf1.ergast import Ergast
 import pandas as pd
@@ -137,6 +137,8 @@ def load_race_data(round1: int, year: int, location: str):
         session.load()
         results = session.results
         laps = session.laps
+        fastest_lap = session.laps.pick_fastest()
+        fast_lap_id = int(fastest_lap["DriverNumber"]) if fastest_lap is not None else None
 
         winner = results.loc[results['Position'] == 1, 'DriverNumber']
         if not winner.empty:
@@ -181,6 +183,7 @@ def load_race_data(round1: int, year: int, location: str):
                 total_laps,
                 status,
                 time2,
+                1 if driver_id == fast_lap_id else 0
             )
         race_jobs[round1] = "ready"
     except Exception:
@@ -287,6 +290,7 @@ async def f1(request: Request):
             results = get_basic_results(past_races[-2].round)
     driver_standings = get_driver_standings(datetime.now().year)
     constructor_standings = get_constructor_standings(datetime.now().year)
+    statistics = get_broad_statistics(datetime.now().year)
 
     return templates.TemplateResponse(
         request=request,
@@ -299,7 +303,8 @@ async def f1(request: Request):
                  "constructor_standings": constructor_standings,
                  "loading": loadingRace1,
                  "loading2": loadingRace2,
-                 "loadingLeaderboard": loadingLeaderboard},
+                 "loadingLeaderboard": loadingLeaderboard,
+                 "statistics": statistics},
         
     )
 
