@@ -42,6 +42,7 @@ async def lifespan(app: FastAPI):
     load_schedule_data()
     load_constructor_data()
     load_leaderboard()
+    threading.Thread(target=maintain_consistency, daemon=True, name="consistency").start()
     yield
 
 app = FastAPI(lifespan=lifespan)
@@ -131,10 +132,10 @@ def format_race_time(driver_row, laps_completed, leader_laps, status):
     return f"+{race_time.total_seconds():.3f}s"
 
 
-def load_race_data(round1: int, year: int, location: str):
+def load_race_data(round1: int, year: int):
     try:
         session = fastf1.get_session(year, int(str(round1)[4:]), 'Race')
-        session.load()
+        session.load(laps=True, telemetry=False, weather=False, messages=False)
         results = session.results
         laps = session.laps
         fastest_lap = session.laps.pick_fastest()
@@ -193,7 +194,7 @@ def load_race_data(round1: int, year: int, location: str):
 
 def load_driver_data(round1: int, year: int, location: str):
     session = fastf1.get_session(year, int(str(round1)[4:]), 'Race')
-    session.load()
+    session.load(laps=True, telemetry=False, weather=False, messages=False)
     results = session.results
     standings = ergast.get_driver_standings(season='current')
     standings = standings.content[0]
@@ -243,7 +244,7 @@ def ensure_race_loaded(race) -> bool:
         return True
     if race_jobs.get(race.round) != "loading":
         race_jobs[race.round] = "loading"
-        threading.Thread(target=load_race_data, args=(race.round, race.year, race.location.split(": ")[1]), daemon=True, name="Loading Race Data").start()
+        threading.Thread(target=load_race_data, args=(race.round, race.year), daemon=True, name="Loading Race Data").start()
     return False
 
 def ensure_ladder_loaded(race) -> bool:
@@ -254,6 +255,19 @@ def ensure_ladder_loaded(race) -> bool:
         ladder_jobs[round] = "loading"
         threading.Thread(target=update_leaderboard, daemon=True, name="Loading Leaderboard Data").start()
     return False
+
+def maintain_consistency():
+    while True:
+        try:
+            past_races, _ = get_races(datetime.now())
+            for race in reversed(past_races):
+                if not results_exist_for_round(race.round):
+                    load_race_data(race.round, race.year)
+                    time.sleep(2)
+            update_leaderboard()
+        except Exception:
+            logging.exception("sweep failed")
+        time.sleep(60 * 60 * 24)
 
 
 
@@ -267,7 +281,6 @@ async def home(request: Request):
 @app.get("/f1")
 async def f1(request: Request):
     past_races, future_races = get_races(datetime.now())
-    update_leaderboard()
     loadingRace1 = False
     loadingRace2 = False
     loadingLeaderboard = False

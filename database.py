@@ -95,8 +95,7 @@ def init_db(conn=None):  # Allow passing a connection
         """)
         c.execute("""
             CREATE TABLE IF NOT EXISTS results
-            (id INTEGER PRIMARY KEY,
-             round INTEGER NOT NULL,
+            (round INTEGER NOT NULL,
              driver_id INTEGER NOT NULL,
              constructor_id INTEGER NOT NULL,
              grid_position INTEGER NOT NULL,
@@ -106,7 +105,8 @@ def init_db(conn=None):  # Allow passing a connection
              laps INTEGER NOT NULL,
              status TEXT NOT NULL,
              time TEXT NOT NULL,
-             fastest_lap INTEGER);
+             fastest_lap INTEGER,
+             PRIMARY KEY (round, driver_id));
         """)
         c.execute("""
             CREATE TABLE IF NOT EXISTS constructors

@@ -40,7 +40,8 @@ def test_f1_renders_seeded_results(client, monkeypatch):
     cid = database.get_constructor_id("Ferrari")
     database.add_drivers_to_db(16, "LEC", "Charles", "Leclerc", "Ferrari", "http://img", "Monegasque")
     database.add_race_to_db(
-        20261, 16, cid, 3, 1, [database.Stint(tire="SOFT", laps=50)], 2, 50, "Finished"
+        20261, 16, cid, 3, 1, [database.Stint(tire="SOFT", laps=50)], 2, 50, "Finished",
+        "1:32:45.123", 1
     )
 
     resp = client.get("/f1")

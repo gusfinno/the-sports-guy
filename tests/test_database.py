@@ -130,7 +130,7 @@ def test_results_flow(db):
 
     assert not database.results_exist_for_round(1)
     stints = [database.Stint(tire="SOFT", laps=20), database.Stint(tire="HARD", laps=30)]
-    database.add_race_to_db(1, 16, cid, 3, 1, stints, 2, 50, "Finished")
+    database.add_race_to_db(1, 16, cid, 3, 1, stints, 2, 50, "Finished", "1:32:45.123", 1)
     assert database.results_exist_for_round(1)
 
     results = database.get_basic_results(1)
@@ -139,6 +139,7 @@ def test_results_flow(db):
     assert r.driver_id == 16
     assert r.constructor_name == "Ferrari"
     assert r.position == 1
+    assert r.time == "1:32:45.123"
     assert [s.tire for s in r.stints] == ["SOFT", "HARD"]
 
     database.clear_results_for_round(1)
