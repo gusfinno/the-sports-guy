@@ -44,6 +44,7 @@ class Result(BaseModel):
     overtakes: Optional[int]
     laps: int
     status: str
+    time: str
     url: str
 
 class Constructor(BaseModel):
@@ -91,7 +92,8 @@ def init_db(conn=None):  # Allow passing a connection
              stints TEXT NOT NULL,
              overtakes INTEGER NOT NULL,
              laps INTEGER NOT NULL,
-             status TEXT NOT NULL);
+             status TEXT NOT NULL,
+             time TEXT NOT NULL);
         """)
         c.execute("""
             CREATE TABLE IF NOT EXISTS constructors
@@ -133,13 +135,14 @@ def add_race_to_db(
     stints: List[Stint],
     overtakes: int,
     laps: int,
-    status: int
+    status: int,
+    time: str
 ):  
     with sqlite3.connect(DATABASE_NAME) as conn:
         c = conn.cursor()
         c.execute(
-            "INSERT OR IGNORE INTO results (round, driver_id, constructor_id, grid_position, position, stints, overtakes, laps, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (round, driver_id, constructor_id, grid_position, position, json.dumps([s.model_dump() for s in stints]), overtakes, laps, status)
+            "INSERT OR IGNORE INTO results (round, driver_id, constructor_id, grid_position, position, stints, overtakes, laps, status, time) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (round, driver_id, constructor_id, grid_position, position, json.dumps([s.model_dump() for s in stints]), overtakes, laps, status, time)
         )
 
 def add_schedule_to_db(
@@ -313,7 +316,7 @@ def get_basic_results(round: int):
     with sqlite3.connect(DATABASE_NAME) as conn:
         c = conn.cursor()
         c.execute("""
-                  SELECT r.round, r.driver_id, d.first_name, d.last_name, c.name, r.grid_position,r.position, r.laps, r.status, d.url, r.stints, r.overtakes
+                  SELECT r.round, r.driver_id, d.first_name, d.last_name, c.name, r.grid_position,r.position, r.laps, r.status, d.url, r.stints, r.overtakes, r.time
                   FROM results r
                   JOIN drivers
                    d ON d.id = r.driver_id
@@ -323,7 +326,7 @@ def get_basic_results(round: int):
                   """, (round,))
         results = [
             Result(
-                round=row[0], driver_id=row[1], first_name=row[2], last_name=row[3], constructor_name=row[4], grid_position=row[5], position=row[6], laps=row[7], status=row[8], url=row[9], stints=[Stint(**s) for s in json.loads(row[10])] if row[10] else None, overtakes=row[11]
+                round=row[0], driver_id=row[1], first_name=row[2], last_name=row[3], constructor_name=row[4], grid_position=row[5], position=row[6], laps=row[7], status=row[8], url=row[9], stints=[Stint(**s) for s in json.loads(row[10])] if row[10] else None, overtakes=row[11], time=row[12]
             )
             
             for row in c.fetchall()
@@ -419,9 +422,8 @@ def leader_up_to_date():
 
 
 def delete_most_recent_round_for_testing():
-    round = get_1_race()
     with sqlite3.connect(DATABASE_NAME) as conn:
         c = conn.cursor()
-        c.execute("DELETE FROM results WHERE round = ?", (round,))
+        c.execute("DROP TABLE results")
         conn.commit()
         return

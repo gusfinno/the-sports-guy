@@ -106,12 +106,43 @@ def update_leaderboard():
         logging.exception("race load failed")
         ladder_jobs[round] = "error"
 
+def format_race_time(driver_row, laps_completed, leader_laps, status):
+
+    if status.startswith("+") and "Lap" in status:
+        return status
+
+    classified = str(driver_row['ClassifiedPosition']).isdigit()
+    laps_down = leader_laps - laps_completed
+    if classified and laps_down > 0:
+        if laps_down == 1:
+            return f"+{laps_down} Lap"
+        else:
+            return f"+{laps_down} Laps"
+
+    race_time = driver_row['Time']
+    if pd.isna(race_time):
+        return status
+
+    finish_pos = driver_row['Position']
+    if not pd.isna(finish_pos) and int(finish_pos) == 1:
+        hours, rem = divmod(race_time.total_seconds(), 3600)
+        mins, secs = divmod(rem, 60)
+        return f"{int(hours)}:{int(mins):02d}:{secs:06.3f}"
+    return f"+{race_time.total_seconds():.3f}s"
+
+
 def load_race_data(round1: int, year: int, location: str):
     try:
         session = fastf1.get_session(year, location, 'Race')
         session.load()
         results = session.results
         laps = session.laps
+
+        winner = results.loc[results['Position'] == 1, 'DriverNumber']
+        if not winner.empty:
+            leader_laps = len(laps.pick_drivers(winner.iloc[0]))
+        else:
+            leader_laps = int(laps.groupby('DriverNumber').size().max()) if not laps.empty else 0
 
         for _, driver_row in results.iterrows():
             driver_id = int(driver_row['DriverNumber'])
@@ -137,6 +168,8 @@ def load_race_data(round1: int, year: int, location: str):
 
             total_laps = len(driver_laps)
 
+            time2 = format_race_time(driver_row, total_laps, leader_laps, status)
+
             add_race_to_db(
                 round1,
                 driver_id,
@@ -147,6 +180,7 @@ def load_race_data(round1: int, year: int, location: str):
                 overtakes,
                 total_laps,
                 status,
+                time2,
             )
         race_jobs[round1] = "ready"
     except Exception:
@@ -272,14 +306,16 @@ async def f1(request: Request):
 @app.get("/f1/race/{round1}")
 async def f1_round(round1: int, request: Request):
     past_races, future_races = get_races(datetime.now())
-    results = get_basic_results(past_races[-1].round)
+    race = next((r for r in past_races if r.round == round1), None)
+    results = get_basic_results(round1)
     return templates.TemplateResponse(
             request=request,
-            name="f1.html",
+            name="f1_round.html",
             context={"past_races": past_races,
                      "future_races": future_races,
+                     "race": race,
                      "results": results},
-            
+
         )
 
 

@@ -22,39 +22,112 @@
 
     <div class="max-w-7xl mx-auto px-4 py-4">
         <div class="flex"><h1 class="text-3xl font-extrabold mr-5">Formula 1</h1>
+            {% if race %}<h2 class="text-3xl font-light text-gray-500">{{ race.location }}</h2>{% endif %}
             </div>
         <div class="flex gap-4 mt-8">
             <div class="w-4/5 left_side">
                 <div class="bg-blue-100 rounded-lg shadow p-6">
-                    
-                </div>
-            </div>
-            <div class="w-1/5 bg-blue-100 rounded-lg shadow p-6" style="width: 40%">
-                <div class="driver_standings">
+                    <h2 class="text-base font-semibold text-gray-700 mb-2">Race Results</h2>
                     <table class="w-full text-sm text-left">
                         <thead class="text-gray-500 border-b border-blue-300">
                             <tr>
                                 <th class="py-2 pr-2">#</th>
                                 <th class="py-2 pr-2">Driver</th>
                                 <th class="py-2 pr-2">Team</th>
-                                <th class="py-2 text-right">Pts</th>
+                                <th class="py-2 pr-2 text-right">Time</th>
                             </tr>
                         </thead>
                         <tbody>
-                            {% for driver in driver_standings %}
-                            <tr class="border-b border-blue-200">
-                                <td class="py-2 pr-2 text-gray-500">{{ loop.index }}</td>
-                                <td class="py-2 pr-2 font-medium">{{ driver.first_name }} {{ driver.last_name }}</td>
+                            {% for driver in results %}
+                            <tr class="border-b border-blue-200 cursor-pointer hover:bg-blue-200 driver-row">
+                                <td class="py-2 pr-2 text-gray-500">{{ driver.position }}</td>
+                                <td class="py-2 pr-2 font-medium">
+                                    <span class="inline-block w-3 text-gray-400 toggle-arrow">&#9656;</span>
+                                    {{ driver.first_name }} {{ driver.last_name }}
+                                </td>
                                 <td class="py-2 pr-2 text-gray-600">{{ driver.constructor_name }}</td>
-                                <td class="py-2 text-right font-semibold">{{ driver.points | int }}</td>
+                                <td class="py-2 pr-2 text-right">{{ driver.time }}</td>
+                            </tr>
+                            <tr class="detail-row hidden border-b border-blue-200" data-driver="{{ driver.driver_id }}">
+                                <td colspan="4" class="p-4 bg-blue-50">
+                                    <div class="flex gap-6">
+                                        {% if driver.url %}
+                                        <img src="{{ driver.url }}" alt="{{ driver.first_name }} {{ driver.last_name }}" class="w-24 h-24 object-cover rounded-lg bg-blue-100">
+                                        {% endif %}
+                                        <div class="flex-1">
+                                            <h3 class="font-semibold text-gray-800 mb-2">{{ driver.first_name }} {{ driver.last_name }} - #{{ driver.driver_id }}</h3>
+                                            <div class="grid grid-cols-5 gap-4 text-sm">
+                                                <div>
+                                                    <div class="text-gray-500">Positions gained</div>
+                                                    <div class="font-medium">{{ driver.grid_position | int - driver.position | int }}</div>
+                                                </div>
+                                                <div>
+                                                    <div class="text-gray-500">Grid Position</div>
+                                                    <div class="font-medium">{{ driver.grid_position }}</div>
+                                                </div>
+                                                <div>
+                                                    <div class="text-gray-500">Overtakes</div>
+                                                    <div class="font-medium">{{ driver.overtakes }}</div>
+                                                </div>
+                                                <div>
+                                                    <div class="text-gray-500">Laps completed</div>
+                                                    <div class="font-medium">{{ driver.laps }}</div>
+                                                </div>
+                                                <div>
+                                                    <div class="text-gray-500">Pit stops</div>
+                                                    <div class="font-medium">{{ (driver.stints | length) - 1 if driver.stints else 0 }}</div>
+                                                </div>
+                                            </div>
+                                            <div class="mt-3 text-sm">
+                                                <div class="text-gray-500 mb-1">Stints</div>
+                                                {% for stint in driver.stints or [] %}
+                                                <div class="flex items-center gap-2 mb-1">
+                                                    <span class="w-20 text-gray-600">{{ stint.tire | capitalize }}</span>
+                                                    <span class="h-3 rounded bg-blue-400 stint-bar" data-pct="{{ (stint.laps / driver.laps * 100) | round if driver.laps else 0 }}"></span>
+                                                    <span class="text-gray-500">{{ stint.laps }} laps</span>
+                                                </div>
+                                                {% else %}
+                                                <div class="text-gray-500">No stint data.</div>
+                                                {% endfor %}
+                                            </div>
+                                        </div>
+                                    </div>
+                                </td>
+                            </tr>
+                            {% else %}
+                            <tr>
+                                <td class="py-2 text-gray-500" colspan="4">No results saved for this round yet.</td>
                             </tr>
                             {% endfor %}
                         </tbody>
                     </table>
                 </div>
             </div>
+            <div class="w-1/5 bg-blue-100 rounded-lg shadow p-6" style="width: 40%">
+                
+            </div>
         </div>
     </div>
+
+    <script>
+    (function () {
+        document.querySelectorAll('.stint-bar').forEach(function (bar) {
+            bar.style.width = bar.dataset.pct + '%';
+        });
+
+        document.querySelectorAll('.driver-row').forEach(function (row) {
+            const detail = row.nextElementSibling;
+            const arrow = row.querySelector('.toggle-arrow');
+            if (!detail || !detail.classList.contains('detail-row')) return;
+
+            row.addEventListener('click', function () {
+                const opening = detail.classList.contains('hidden');
+                detail.classList.toggle('hidden', !opening);
+                arrow.innerHTML = opening ? '&#9662;' : '&#9656;';
+            });
+        });
+    })();
+    </script>
 
 </body>
 </html>
