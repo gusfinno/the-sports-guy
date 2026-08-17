@@ -96,15 +96,43 @@
                             </tr>
                             {% else %}
                             <tr>
-                                <td class="py-2 text-gray-500" colspan="4">No results saved for this round yet.</td>
+                                <td class="py-2 font-medium mb-3 animate-pulse" colspan="4">Loading race data...</td>
                             </tr>
                             {% endfor %}
                         </tbody>
                     </table>
                 </div>
             </div>
-            <div class="w-1/5 bg-blue-100 rounded-lg shadow p-6" style="width: 40%">
-                
+            <div class="w-1/5" style="width: 40%">
+                <div class="bg-blue-100 rounded-lg shadow p-6">
+                    <h2 class="text-base font-semibold text-gray-700 mb-2">Recent Races</h2>
+                    {% set fill = past_races[-4:] | length >= 4 %}
+                    <div class="flex flex-col {{ 'flex-1 justify-between' if fill else '' }}">
+                        {% for race in past_races[-4:] | reverse %}
+                        <div class="flex bg-blue-200 rounded-lg shadow p-6 {{ '' if loop.last else 'mb-5' }}">
+                            <a href='/f1/race/{{ race.round }}'>{{ race.location }}</a> 
+                            <span class="ml-auto text-gray-500">
+                                {{ race.day }}/{{ race.month }} 
+                            </span>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+                <br>
+                <div class="bg-blue-100 rounded-lg shadow p-6">
+                    <h2 class="text-base font-semibold text-gray-700 mb-2">Upcoming Races</h2>
+                    {% set fill = future_races[:4] | length >= 4 %}
+                    <div class="flex flex-col {{ 'flex-1 justify-between' if fill else '' }}">
+                        {% for race in future_races[:4] %}
+                        <div class="flex bg-blue-200 rounded-lg shadow p-6 {{ '' if loop.last else 'mb-5' }}">
+                            {{ race.location }}  
+                            <span class="ml-auto text-gray-500">
+                                {{ race.day }}/{{ race.month }} 
+                            </span>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -128,6 +156,17 @@
         });
     })();
     </script>
+    {% if loading %}
+    <script>
+    async function poll() {
+        const r = await fetch("/f1/status/{{ race.round }}");
+        const s = await r.json();
+        if (s.ready || s.error) { location.reload(); }
+        else { setTimeout(poll, 1000); }
+    }
+    poll();
+    </script>
+    {% endif %}
 
 </body>
 </html>

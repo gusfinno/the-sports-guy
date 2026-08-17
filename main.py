@@ -133,7 +133,7 @@ def format_race_time(driver_row, laps_completed, leader_laps, status):
 
 def load_race_data(round1: int, year: int, location: str):
     try:
-        session = fastf1.get_session(year, location, 'Race')
+        session = fastf1.get_session(year, int(str(round1)[4:]), 'Race')
         session.load()
         results = session.results
         laps = session.laps
@@ -189,7 +189,7 @@ def load_race_data(round1: int, year: int, location: str):
 
 
 def load_driver_data(round1: int, year: int, location: str):
-    session = fastf1.get_session(year, location, 'Race')
+    session = fastf1.get_session(year, int(str(round1)[4:]), 'Race')
     session.load()
     results = session.results
     standings = ergast.get_driver_standings(season='current')
@@ -240,7 +240,7 @@ def ensure_race_loaded(race) -> bool:
         return True
     if race_jobs.get(race.round) != "loading":
         race_jobs[race.round] = "loading"
-        threading.Thread(target=load_race_data, args=(race.round, race.year, race.location.split(": ")[0]), daemon=True, name="Loading Race Data").start()
+        threading.Thread(target=load_race_data, args=(race.round, race.year, race.location.split(": ")[1]), daemon=True, name="Loading Race Data").start()
     return False
 
 def ensure_ladder_loaded(race) -> bool:
@@ -305,16 +305,24 @@ async def f1(request: Request):
 
 @app.get("/f1/race/{round1}")
 async def f1_round(round1: int, request: Request):
+    loadingRace = False
+    results = []
     past_races, future_races = get_races(datetime.now())
-    race = next((r for r in past_races if r.round == round1), None)
-    results = get_basic_results(round1)
+    index = next((i for i, r in enumerate(past_races) if r.round == round1), None)
+    race = past_races.pop(index) if index is not None else None
+    if not results_exist_for_round(race.round):
+        loadingRace = True
+        ensure_race_loaded(race)
+    else:
+        results = get_basic_results(race.round)
     return templates.TemplateResponse(
             request=request,
             name="f1_round.html",
             context={"past_races": past_races,
                      "future_races": future_races,
                      "race": race,
-                     "results": results},
+                     "results": results,
+                     "loading": loadingRace},
 
         )
 
