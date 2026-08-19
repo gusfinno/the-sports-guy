@@ -10,7 +10,7 @@ import time
 import httpx
 import os
 from dotenv import load_dotenv
-from database import add_constructor_standings_to_db, add_driver_standings_to_db, delete_most_recent_round_for_testing, get_basic_results, get_constructor_standings, get_broad_statistics, get_driver_standings, init_db, get_races, add_schedule_to_db, schedule_exists_for_year, add_drivers_to_db, drivers_exist, clear_drivers, add_race_to_db, get_constructor_id, Stint, results_exist_for_round, clear_results_for_round, add_constructor_to_db, constructors_exist, leader_up_to_date, update_driver_standings, update_constructor_standings
+from database import add_constructor_standings_to_db, add_driver_standings_to_db, add_race_highlights, delete_most_recent_round_for_testing, get_basic_results, get_constructor_standings, get_broad_statistics, get_driver_standings, init_db, get_races, add_schedule_to_db, schedule_exists_for_year, add_drivers_to_db, drivers_exist, clear_drivers, add_race_to_db, get_constructor_id, Stint, results_exist_for_round, clear_results_for_round, add_constructor_to_db, constructors_exist, leader_up_to_date, update_driver_standings, update_constructor_standings, highlight_exists_for_round
 import fastf1
 from fastf1.ergast import Ergast
 import pandas as pd
@@ -19,7 +19,7 @@ import numpy as np
 import requests
 import threading
 from fastapi.responses import JSONResponse
-fastf1.Cache.enable_cache('fastf1-cache')  # Enable caching for faster data retrieval
+fastf1.Cache.enable_cache('fastf1-cache')
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -192,7 +192,7 @@ def load_race_data(round1: int, year: int):
         race_jobs[round1] = "error"
 
 
-def load_driver_data(round1: int, year: int, location: str):
+def load_driver_data(round1: int, year: int):
     session = fastf1.get_session(year, int(str(round1)[4:]), 'Race')
     session.load(laps=True, telemetry=False, weather=False, messages=False)
     results = session.results
@@ -236,8 +236,16 @@ def load_schedule_data():
             else:
                 format = True
             if event.RoundNumber!=0:
-                add_schedule_to_db(int(str(event.year)+str(event.RoundNumber)), event.year, (event.Country + ": "+ event.Location), format, int(str(event.EventDate)[5:7]), int(str(event.EventDate)[8:10]))
+                add_schedule_to_db(int(str(event.year)+str(event.RoundNumber)), event.year, event.EventName, str(event.Location + ", " + event.Country), format, int(str(event.EventDate)[5:7]), int(str(event.EventDate)[8:10]))
 
+def update_highlights(round, title):
+    url = "https://www.youtube.com/feeds/videos.xml?playlist_id=PLfoNZDHitwjU1j8PiNg17QGDN37d07Rex"
+    response = requests.get(url, headers={"User-Agent": "Mozilla/5.0"})
+    feed = feedparser.parse(response.content)
+    target_url = next((entry.yt_videoid for entry in feed.entries if title in entry.title), None)
+    if target_url == None:
+        target_url = next((entry.yt_videoid for entry in feed.entries if title.split()[0] in entry.title), None)
+    add_race_highlights(target_url, round, title)
 
 def ensure_race_loaded(race) -> bool:
     if results_exist_for_round(race.round):
@@ -261,6 +269,8 @@ def maintain_consistency():
         try:
             past_races, _ = get_races(datetime.now())
             for race in reversed(past_races):
+                if not highlight_exists_for_round(race.round):
+                    update_highlights(race.round, race.event)
                 if not results_exist_for_round(race.round):
                     load_race_data(race.round, race.year)
                     time.sleep(2)
@@ -287,7 +297,7 @@ async def f1(request: Request):
     results = []
     results2 = None
     if not drivers_exist():
-        load_driver_data(past_races[-1].round, past_races[-1].year, past_races[-1].location.split(": ")[0])
+        load_driver_data(past_races[-1].round, past_races[-1].year)
     if not results_exist_for_round(past_races[-1].round):
         loadingRace1 = True
         ensure_race_loaded(past_races[-1])

@@ -12,10 +12,12 @@ DATABASE_NAME = "sports.db"
 class F1Race(BaseModel):
     round: int
     year: int
+    event: str
     location: str
     sprint: bool = False
     month: int
     day: int
+    highlights: Optional[str] = None
 
 class Stint(BaseModel):
     tire: str
@@ -78,6 +80,7 @@ def init_db(conn=None):  # Allow passing a connection
             CREATE TABLE IF NOT EXISTS f1_races
             (round INTEGER PRIMARY KEY,
              year INTEGER NOT NULL,
+             event TEXT NOT NULL,
              location TEXT NOT NULL,
              sprint BOOLEAN NOT NULL,
              month INTEGER NOT NULL,
@@ -130,6 +133,13 @@ def init_db(conn=None):  # Allow passing a connection
              points FLOAT NOT NULL,
              last_updated INTEGER);
         """)
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS race_highlights
+            (id INTEGER PRIMARY KEY,
+            race_id INTEGER NOT NULL,
+            event TEXT NOT NULL,
+            video_id TEXT NOT NULL);
+        """)
     finally:
         if not supplied_conn and conn:  # If we opened it, we close it
             conn.close()
@@ -161,6 +171,7 @@ def add_race_to_db(
 def add_schedule_to_db(
     round: int,
     year: int,
+    event: str,
     location: str,
     sprint: bool,
     month: int,
@@ -169,8 +180,8 @@ def add_schedule_to_db(
     with sqlite3.connect(DATABASE_NAME) as conn:
         c = conn.cursor()
         c.execute(
-            "INSERT INTO f1_races (round, year, location, sprint, month, day) VALUES (?, ?, ?, ?, ?, ?)",
-            (round, year, location, sprint, month, day),
+            "INSERT INTO f1_races (round, year, event, location, sprint, month, day) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (round, year, event, location, sprint, month, day),
         )
         conn.commit()
 
@@ -240,6 +251,20 @@ def add_drivers_to_db(
                 c.execute("UPDATE constructors SET driver_2_id = ? WHERE id = ?", (id, constructor_id))
         conn.commit()
 
+def add_race_highlights(
+    video_id: str,
+    race_id: str,
+    title: int
+):
+    
+    with sqlite3.connect(DATABASE_NAME) as conn:
+        c = conn.cursor()
+        c.execute(
+            "INSERT OR IGNORE INTO race_highlights (race_id, event, video_id) VALUES (?, ?, ?)",
+            (race_id, title, video_id)
+        )
+        conn.commit()
+
 #UPDATE functions
 
 def update_driver_standings(
@@ -279,10 +304,10 @@ def get_races(date: datetime.date):
     with sqlite3.connect(DATABASE_NAME) as conn:
         c = conn.cursor()
 
-        c.execute("SELECT * FROM f1_races WHERE year = ? AND (month < ? OR (month == ? AND day < ?)) ORDER BY round ASC", (date.year, date.month, date.month, date.day))
+        c.execute("SELECT r.round, r.year, r.event, r.location, r.sprint, r.month, r.day, h.video_id FROM f1_races r LEFT JOIN race_highlights h ON r.round = h.race_id WHERE year = ? AND (month < ? OR (month == ? AND day < ?)) ORDER BY round ASC", (date.year, date.month, date.month, date.day))
         past_races = [
             F1Race(
-                round=row[0], year=row[1], location=row[2], sprint=row[3], month=row[4], day=row[5]
+                round=row[0], year=row[1], event=row[2], location=row[3], sprint=row[4], month=row[5], day=row[6], highlights=row[7]
             )
             
             for row in c.fetchall()
@@ -292,10 +317,10 @@ def get_races(date: datetime.date):
             raise ValueError(f"No races yet this season?")
 
 
-        c.execute("SELECT * FROM f1_races WHERE year = ? AND (month > ? OR (month == ? AND day >= ?)) ORDER BY round ASC", (date.year, date.month, date.month, date.day))
+        c.execute("SELECT round, year, event, location, sprint, month, day FROM f1_races WHERE year = ? AND (month > ? OR (month == ? AND day >= ?)) ORDER BY round ASC", (date.year, date.month, date.month, date.day))
         future_races = [
             F1Race(
-                round=row[0], year=row[1], location=row[2], sprint=row[3], month=row[4], day=row[5]
+                round=row[0], year=row[1], event=row[2], location=row[3], sprint=row[4], month=row[5], day=row[6]
             )
             
             for row in c.fetchall()
@@ -432,6 +457,13 @@ def results_exist_for_round(round: int) -> bool:
         c.execute("SELECT 1 FROM results WHERE round = ? LIMIT 1", (round,))
         return c.fetchone() is not None
 
+
+def highlight_exists_for_round(round):
+    with sqlite3.connect(DATABASE_NAME) as conn:
+        c = conn.cursor()
+        c.execute("SELECT 1 FROM race_highlights WHERE race_id = ?", (round,))
+        return c.fetchone() is not None
+
 def drivers_exist() -> bool:
     with sqlite3.connect(DATABASE_NAME) as conn:
         c = conn.cursor()
@@ -467,6 +499,6 @@ def leader_up_to_date():
 def delete_most_recent_round_for_testing():
     with sqlite3.connect(DATABASE_NAME) as conn:
         c = conn.cursor()
-        c.execute("DROP TABLE results")
+        c.execute("DROP TABLE race_highlights")
         conn.commit()
         return
