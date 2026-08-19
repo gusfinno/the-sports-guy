@@ -69,6 +69,25 @@ class Statistics(BaseModel):
     laps: int
     fastest_laps: int
 
+class HistoricResult(BaseModel):
+    name: str
+    driver_id: int
+    constructor: str
+    position: int
+    grid_position: int
+    time: str
+
+class HistoricRace(BaseModel):
+    round: int
+    rain: Optional[int]
+    temperature: Optional[int]
+
+class FutureWeather(BaseModel):
+    round: int
+    rain: Optional[int]
+    temperature: Optional[int]
+    last_updated: int
+
 def init_db(conn=None):  # Allow passing a connection
     supplied_conn = bool(conn)
     if not conn:
@@ -139,6 +158,30 @@ def init_db(conn=None):  # Allow passing a connection
             race_id INTEGER NOT NULL,
             event TEXT NOT NULL,
             video_id TEXT NOT NULL);
+        """)
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS future_weather
+            (round INTEGER PRIMARY KEY,
+            rain INTEGER,
+            temperature INTEGER,
+            last_updated INTEGER NOT NULL);
+        """)
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS historic_information
+            (round INTEGER PRIMARY KEY,
+            rain INTEGER,
+            temperature INTEGER);
+        """)
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS historic_results
+            (round INTEGER NOT NULL,
+            driver_name TEXT NOT NULL,
+            driver_number INTEGER NOT NULL,
+            constructor_name TEXT NOT NULL,
+            position INTEGER NOT NULL,
+            time TEXT NOT NULL,
+            grid_position INTEGER NOT NULL,
+            PRIMARY KEY (round, driver_number));
         """)
     finally:
         if not supplied_conn and conn:  # If we opened it, we close it
@@ -262,6 +305,50 @@ def add_race_highlights(
         c.execute(
             "INSERT OR IGNORE INTO race_highlights (race_id, event, video_id) VALUES (?, ?, ?)",
             (race_id, title, video_id)
+        )
+        conn.commit()
+
+def add_historic_information(
+    round: int,
+    rain: Optional[int],
+    temperature: Optional[int]
+):
+    with sqlite3.connect(DATABASE_NAME) as conn:
+        c = conn.cursor()
+        c.execute(
+            "INSERT OR IGNORE INTO historic_information (round, rain, temperature) VALUES (?, ?, ?)",
+            (round, rain, temperature)
+        )
+        conn.commit()
+
+def add_future_weather(
+    round: int,
+    rain: int,
+    temperature: int,
+    last_updated: int
+):
+    with sqlite3.connect(DATABASE_NAME) as conn:
+        c = conn.cursor()
+        c.execute(
+            "INSERT OR REPLACE INTO future_weather (round, rain, temperature, last_updated) VALUES (?, ?, ?, ?)",
+            (round, rain, temperature, last_updated)
+        )
+        conn.commit()
+
+def add_historic_results(
+    round: int,
+    driver_name: str,
+    driver_number: int,
+    constructor_name: str,
+    position: int,
+    time: str,
+    grid_position: int
+):
+    with sqlite3.connect(DATABASE_NAME) as conn:
+        c = conn.cursor()
+        c.execute(
+            "INSERT OR IGNORE INTO historic_results (round, driver_name, driver_number, constructor_name, position, time, grid_position) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (round, driver_name, driver_number, constructor_name, position, time, grid_position)
         )
         conn.commit()
 
@@ -399,6 +486,48 @@ def get_driver_standings(year: int):
         ]
         return standings
     
+def get_historic_race(round: int):
+    with sqlite3.connect(DATABASE_NAME) as conn:
+        c = conn.cursor()
+        c.execute("""
+            SELECT *
+            FROM historic_information
+            WHERE round = ?
+            """, (round,))
+        row = c.fetchone()
+        if row:
+            return HistoricRace(round=row[0], rain=row[1], temperature=row[2])
+        return None
+    
+def get_future_weather(round: int):
+    with sqlite3.connect(DATABASE_NAME) as conn:
+        c = conn.cursor()
+        c.execute("""
+            SELECT *
+            FROM future_weather
+            WHERE round = ?
+            """, (round,))
+        row = c.fetchone()
+        if row:
+            return FutureWeather(round=row[0], rain=row[1], temperature=row[2], last_updated=row[3])
+        return None
+
+def get_historic_results(round: int):
+    with sqlite3.connect(DATABASE_NAME) as conn:
+        c = conn.cursor()
+        c.execute("""
+            SELECT driver_name, driver_number, constructor_name, position, grid_position, time
+            FROM historic_results
+            WHERE round = ?
+            ORDER BY position ASC
+            """, (round,))
+        results = [
+            HistoricResult(name=row[0], driver_id=row[1], constructor=row[2], position=row[3], grid_position=row[4], time=row[5])
+            for row in c.fetchall()
+        ]
+        return results
+
+
 def get_constructor_standings(year: int):
     with sqlite3.connect(DATABASE_NAME) as conn:
         c = conn.cursor()

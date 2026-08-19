@@ -1,4 +1,5 @@
 import logging
+from turtle import update
 import feedparser
 from contextlib import asynccontextmanager
 from datetime import datetime
@@ -10,7 +11,7 @@ import time
 import httpx
 import os
 from dotenv import load_dotenv
-from database import add_constructor_standings_to_db, add_driver_standings_to_db, add_race_highlights, delete_most_recent_round_for_testing, get_basic_results, get_constructor_standings, get_broad_statistics, get_driver_standings, init_db, get_races, add_schedule_to_db, schedule_exists_for_year, add_drivers_to_db, drivers_exist, clear_drivers, add_race_to_db, get_constructor_id, Stint, results_exist_for_round, clear_results_for_round, add_constructor_to_db, constructors_exist, leader_up_to_date, update_driver_standings, update_constructor_standings, highlight_exists_for_round
+from database import add_constructor_standings_to_db, add_driver_standings_to_db, add_future_weather, add_historic_information, add_historic_results, add_race_highlights, delete_most_recent_round_for_testing, get_basic_results, get_constructor_standings, get_broad_statistics, get_driver_standings, init_db, get_races, add_schedule_to_db, schedule_exists_for_year, add_drivers_to_db, drivers_exist, clear_drivers, add_race_to_db, get_constructor_id, Stint, results_exist_for_round, clear_results_for_round, add_constructor_to_db, constructors_exist, leader_up_to_date, update_driver_standings, update_constructor_standings, highlight_exists_for_round, get_historic_race, get_historic_results
 import fastf1
 from fastf1.ergast import Ergast
 import pandas as pd
@@ -169,9 +170,9 @@ def load_race_data(round1: int, year: int):
             lap_positions = driver_laps['Position'].dropna()
             overtakes = int((lap_positions.diff() < 0).sum())
 
-            total_laps = len(driver_laps)
+            total_laps = int(driver_row['Laps'])
 
-            time2 = format_race_time(driver_row, total_laps, leader_laps, status)
+            time1 = format_race_time(driver_row, total_laps, leader_laps, status)
 
             add_race_to_db(
                 round1,
@@ -183,7 +184,7 @@ def load_race_data(round1: int, year: int):
                 overtakes,
                 total_laps,
                 status,
-                time2,
+                time1,
                 1 if driver_id == fast_lap_id else 0
             )
         race_jobs[round1] = "ready"
@@ -219,6 +220,154 @@ def load_constructor_data():
             constructor_row['constructorName'],
             constructor_row['constructorNationality']
         )
+
+def get_average_air_temp(weather_data):
+    if weather_data is None or weather_data.empty:
+        return None
+    average = weather_data['AirTemp'].mean()
+    if pd.isna(average):
+        return None
+    return int(round(float(average)))
+
+def get_rainfall(weather_data):
+    if weather_data is None or weather_data.empty:
+        return None
+    wet = weather_data['Rainfall'].mean()
+    if pd.isna(wet):
+        return None
+    return int(round(float(wet) * 100))
+
+GEOCODE_URL = "https://geocoding-api.open-meteo.com/v1/search"
+FORECAST_URL = "https://api.open-meteo.com/v1/forecast"
+
+def find_location(city, country):
+    response = requests.get(
+        GEOCODE_URL,
+        params={"name": city, "count": 10, "language": "en", "format": "json"},
+        timeout=10
+    )
+    response.raise_for_status()
+    matches = response.json().get("results") or []
+    wanted = country.strip().lower()
+    for match in matches:
+        names = (str(match.get("country", "")).lower(), str(match.get("country_code", "")).lower())
+        if wanted in names:
+            return match
+    return None
+
+WEATHER_HOURS = ("15:00", "16:00")
+
+def load_race_weather(race):
+    city, country = race.location.split(", ")
+    now = datetime.now()
+    race_date = now.replace(month=race.month, day=race.day)
+    if (race_date.date() - now.date()).days > 7:
+        return None
+    date = race_date.strftime("%Y-%m-%d")
+    try:
+        location = find_location(city, country)
+        if location is None:
+            return None
+        response = requests.get(
+            FORECAST_URL,
+            params={
+                "latitude": location["latitude"],
+                "longitude": location["longitude"],
+                "hourly": "temperature_2m,precipitation_probability",
+                "timezone": "auto",
+                "start_date": date,
+                "end_date": date
+            },
+            timeout=10
+        )
+        response.raise_for_status()
+        hourly = response.json().get("hourly") or {}
+        times = hourly.get("time") or []
+        temps = hourly.get("temperature_2m") or []
+        rain = hourly.get("precipitation_probability") or []
+
+        window_temps = []
+        window_rain = []
+        for hour in WEATHER_HOURS:
+            stamp = f"{date}T{hour}"
+            if stamp not in times:
+                continue
+            index = times.index(stamp)
+            if index < len(temps) and temps[index] is not None:
+                window_temps.append(temps[index])
+            if index < len(rain) and rain[index] is not None:
+                window_rain.append(rain[index])
+        if not window_temps and not window_rain:
+            return None
+        weather = {
+            "air_temp": int(round(sum(window_temps) / len(window_temps))) if window_temps else None,
+            "chance_of_rain": int(round(max(window_rain))) if window_rain else None
+        }
+        add_future_weather(
+            race.round,
+            weather["chance_of_rain"],
+            weather["air_temp"],
+            int(now.strftime("%Y%m%d"))
+        )
+        return weather
+    except Exception:
+        logging.exception("weather lookup failed")
+        return None
+
+def load_past_race_data(race):
+    try:
+        session = fastf1.get_session(race.year-1, race.event, 'Race')
+        if session.event.EventName != race.event:
+                    return False
+        session.load(laps=True, telemetry=False, weather=True, messages=False)
+        
+        results = session.results
+        laps = session.laps
+        winner = results.loc[results['Position'] == 1, 'DriverNumber']
+        if not winner.empty:
+            leader_laps = len(laps.pick_drivers(winner.iloc[0]))
+        else:
+            leader_laps = int(laps.groupby('DriverNumber').size().max()) if not laps.empty else 0
+
+        for _, driver_row in results.iterrows():
+            driver_name = driver_row['FullName']
+            driver_id = int(driver_row['DriverNumber'])
+            constructor = driver_row['TeamName']
+
+            grid_pos = driver_row['GridPosition']
+            grid_position = str(int(grid_pos)) if not pd.isna(grid_pos) else 0
+
+            finish_pos = driver_row['Position']
+            position = str(int(finish_pos)) if not pd.isna(finish_pos) else 50
+
+            driver_laps = int(driver_row['Laps'])
+            status = str(driver_row['Status'])
+            time1 = format_race_time(driver_row, driver_laps, leader_laps, status)
+
+            add_historic_results(
+                race.round,
+                driver_name,
+                driver_id,
+                constructor,
+                position,
+                time1,
+                grid_position
+            )
+
+        weather_data = session.weather_data
+        average_air_temp = get_average_air_temp(weather_data)
+        rainfall = get_rainfall(weather_data)
+        add_historic_information(
+            race.round,
+            rainfall,
+            average_air_temp
+        )
+        return True
+
+    except Exception:
+        logging.exception("race load failed")
+        return False
+
 
 load_dotenv()
 api_key = os.getenv("SPORT_API")
@@ -331,8 +480,8 @@ async def f1(request: Request):
         
     )
 
-@app.get("/f1/race/{round1}")
-async def f1_round(round1: int, request: Request):
+@app.get("/f1/past_race/{round1}")
+async def f1_past_race(round1: int, request: Request):
     loadingRace = False
     results = []
     past_races, future_races = get_races(datetime.now())
@@ -345,15 +494,39 @@ async def f1_round(round1: int, request: Request):
         results = get_basic_results(race.round)
     return templates.TemplateResponse(
             request=request,
-            name="f1_round.html",
+            name="past_races.html",
             context={"past_races": past_races,
                      "future_races": future_races,
                      "race": race,
                      "results": results,
                      "loading": loadingRace},
-
         )
 
+@app.get("/f1/future_race/{round1}")
+async def f1_future_race(round1: int, request: Request):
+    loadingRace = False
+    information = []
+    driver_information = []
+    past_races, future_races = get_races(datetime.now())
+    index = next((i for i, r in enumerate(future_races) if r.round == round1), None)
+    race = future_races.pop(index) if index is not None else None
+    if race != None:
+        loaded = load_past_race_data(race)
+        if loaded:
+            information = get_historic_race(round1)
+            driver_information = get_historic_results(round1)
+        
+    return templates.TemplateResponse(
+            request=request,
+            name="upcoming_races.html",
+            context={"past_races": past_races,
+                     "future_races": future_races,
+                     "race": race,
+                     "information": information,
+                     "driver_information": driver_information,
+                     "loading": loadingRace},
+
+        )
 
 @app.get("/f1/status/{round1}")
 async def f1_status(round1: int):
@@ -378,43 +551,3 @@ if __name__ == "__main__":
     import uvicorn
 
     uvicorn.run(app, host="127.0.0.1", port=8000)
-
-
-
-
-
-
-RSS_FEEDS = {
-    "https://feeds.bbci.co.uk/sport/football/rss.xml": "BBC Sport",
-    "https://feeds.bbci.co.uk/sport/formula1/rss.xml": "BBC Sport",
-    "https://feeds.bbci.co.uk/sport/cricket/rss.xml": "BBC Sport",
-    "https://feeds.bbci.co.uk/sport/rugby-union/rss.xml": "BBC Sport",
-    "https://feeds.bbci.co.uk/sport/rugby-league/rss.xml": "BBC Sport",
-    "https://www.abc.net.au/news/feed/51120/rss.xml": "ABC Sport",
-}
-
-SPORT_KEYWORDS = {
-    "f1", "formula 1", "formula one", "grand prix",
-    "nba", "basketball",
-    "football", "soccer", "premier league", "champions league", "world cup",
-    "nfl",
-    "mlb", "baseball",
-    "cricket",
-    "rugby",
-}
-
-BLOCKLIST = {"fantasy", "esports", "e-sports", "wrestling", "wwe", "ufc", "mma", "nascar", "odds", "bets", "betting"}
-
-HEADERS = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"}
-
-SPORT_KEYWORDS: dict[str, set[str]] = {
-    "football": {"football", "soccer", "premier league", "champions league", "world cup",
-                 "fa cup", "serie a", "la liga", "bundesliga", "ligue 1", "epl"},
-    "f1": {"f1", "formula 1", "formula one", "grand prix", "formula1"},
-    "cricket": {"cricket", "test match", " odi ", "ipl", "ashes"},
-    "rugby league": {"rugby league", "nrl", "super league", "state of origin"},
-    "rugby union": {"six nations", "super rugby", "rugby union", "wallabies"},
-    "basketball": {"basketball", "nba"},
-    "american football": {"nfl", "american football"},
-    "baseball": {"mlb", "baseball"},
-}

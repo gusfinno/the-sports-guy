@@ -1,0 +1,98 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="referrer" content="strict-origin-when-cross-origin" />
+    <title>The Sports Guy</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚽</text></svg>">
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+</head>
+<body class="bg-white-50 min-h-screen">
+
+    <nav class="bg-blue-100 shadow-md px-8 py-4">
+        <div class="max-w-5xl mx-auto flex items-center justify-between">
+            <div class="flex items-center gap-6">
+                <a href="/" class="text-2xl font-bold text-gray-800 hover:text-gray-700 font-2xl transition-colors">THESPORTSGUY</a>
+                <a href="/f1" class="text-gray-600 hover:text-gray-900 font-medium transition-colors">Formula 1</a>
+            </div>
+            
+        </div>
+    </nav>
+
+    <div class="max-w-7xl mx-auto px-4 py-4">
+        {% if race %}
+        <div class="flex items-baseline"><h1 class="text-3xl font-extrabold mr-5">{{ race.event }}</h1>
+            <h2 class="text-xl font-light text-gray-500">{{ race.location }}</h2>
+            </div>{% endif %}
+        <div class="flex gap-4 mt-8">
+            <div class="w-4/5 left_side">
+                <div class="bg-blue-100 rounded-lg shadow p-6">
+                    <h2 class="text-base font-semibold text-gray-700 mb-2">Race Details</h2>
+                    <table class="w-full text-sm text-left">
+                        <tbody>
+                            <tr class="border-b border-blue-200 driver-row">
+                                <td class="py-2 pr-2 text-gray-500">Most Recent Winner: </td>
+                                <td class="py-2 pr-2 font-medium">Piastri </td>
+                                <td class="py-2 pr-2 text-gray-600">Most Recent Pole Sitter:</td>
+                                <td class="py-2 pr-2 text-right">The Goat </td>
+                            </tr>
+                            <tr class="border-b border-blue-200 driver-row">
+                                <td class="py-2 pr-2 text-gray-500">Chance of Rain: </td>
+                                <td class="py-2 pr-2 font-medium">0.99%</td>
+                                <td class="py-2 pr-2 text-gray-600">Expected Temperature (°C): </td>
+                                <td class="py-2 pr-2 text-right">123 </td>
+                            </tr>
+    
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="w-1/5" style="width: 40%">
+                <div class="bg-blue-100 rounded-lg shadow p-6">
+                    <h2 class="text-base font-semibold text-gray-700 mb-2">Recent Races</h2>
+                    {% set fill = past_races[-4:] | length >= 4 %}
+                    <div class="flex flex-col {{ 'flex-1 justify-between' if fill else '' }}">
+                        {% for race in past_races[-4:] | reverse %}
+                        <a href='/f1/past_race/{{ race.round }}' class="flex bg-blue-200 rounded-lg shadow p-6 {{ '' if loop.last else 'mb-5' }}">
+                            {{ race.event }}
+                            <span class="ml-auto text-gray-500">
+                                {{ race.day }}/{{ race.month }} 
+                            </span>
+                        </a>
+                        {% endfor %}
+                    </div>
+                </div>
+                <br>
+                <div class="bg-blue-100 rounded-lg shadow p-6">
+                    <h2 class="text-base font-semibold text-gray-700 mb-2">Upcoming Races</h2>
+                    {% set fill = future_races[:4] | length >= 4 %}
+                    <div class="flex flex-col {{ 'flex-1 justify-between' if fill else '' }}">
+                        {% for race in future_races[:4] %}
+                        <div class="flex bg-blue-200 rounded-lg shadow p-6 {{ '' if loop.last else 'mb-5' }}">
+                            {{ race.event }}  
+                            <span class="ml-auto text-gray-500">
+                                {{ race.day }}/{{ race.month }} 
+                            </span>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% if loading %}
+    <script>
+    async function poll() {
+        const r = await fetch("/f1/status/{{ race.round }}");
+        const s = await r.json();
+        if (s.ready || s.error) { location.reload(); }
+        else { setTimeout(poll, 1000); }
+    }
+    poll();
+    </script>
+    {% endif %}
+
+</body>
+</html>
