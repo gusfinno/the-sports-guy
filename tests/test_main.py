@@ -34,8 +34,8 @@ def test_f1_renders_seeded_results(client, monkeypatch):
     monkeypatch.setattr(main, "load_race_data", lambda *a, **k: None)
     monkeypatch.setattr(main, "datetime", _FixedDateTime)
 
-    database.add_schedule_to_db(20261, 2026, "Bahrain: Sakhir", False, 1, 1)
-    database.add_schedule_to_db(20262, 2026, "Saudi: Jeddah", False, 12, 1)
+    database.add_schedule_to_db(20261, 2026, "Bahrain Grand Prix", "Kuala Lumpur, Bahrain", False, 3, 2)
+    database.add_schedule_to_db(20262, 2026, "Saudi Arabia Grand Prix", "Jeddah, Saudi Arabia", False, 3, 9)
     database.add_constructor_to_db("Ferrari", "Italian")
     cid = database.get_constructor_id("Ferrari")
     database.add_drivers_to_db(16, "LEC", "Charles", "Leclerc", "Ferrari", "http://img", "Monegasque")
@@ -46,5 +46,5 @@ def test_f1_renders_seeded_results(client, monkeypatch):
 
     resp = client.get("/f1")
     assert resp.status_code == 200
-    assert "Bahrain: Sakhir" in resp.text
+    assert "Bahrain Grand Prix" in resp.text
     assert "Leclerc" in resp.text

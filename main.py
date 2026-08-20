@@ -79,10 +79,10 @@ def load_leaderboard():
                     float(constructor['points']),
                     round
                 )
-        ladder_jobs[round] = "ready" #status of jobs are maintained for purpose of threading and keeping track of what is running
+        ladder_jobs["newSeason"] = "ready" #status of jobs are maintained for purpose of threading and keeping track of what is running
     except Exception:
         logging.exception("race load failed") #logging failures to be reviewed later
-        ladder_jobs[round] = "error"
+        ladder_jobs["newSeason"] = "error"
 
 #updates leaderboard, difference to load_leaderboard are the functions called communicating with the database, here the database is updated rather than added to
 def update_leaderboard():

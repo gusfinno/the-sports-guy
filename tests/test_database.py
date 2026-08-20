@@ -26,15 +26,15 @@ def test_init_db_creates_tables(db):
 
 def test_schedule_exists_for_year(db):
     assert not database.schedule_exists_for_year(2026)
-    database.add_schedule_to_db(20261, 2026, "Bahrain: Sakhir", False, 3, 2)
+    database.add_schedule_to_db(20261, 2026, "Bahrain Grand Prix", "Kuala Lumpur, Bahrain", False, 3, 2)
     assert database.schedule_exists_for_year(2026)
     assert not database.schedule_exists_for_year(2025)
 
 
 def test_get_races_returns_past_races_and_next(db):
-    database.add_schedule_to_db(20261, 2026, "Bahrain: Sakhir", False, 3, 2)
-    database.add_schedule_to_db(20262, 2026, "Saudi: Jeddah", False, 3, 9)
-    database.add_schedule_to_db(20263, 2026, "Australia: Melbourne", False, 12, 1)
+    database.add_schedule_to_db(20261, 2026, "Bahrain Grand Prix", "Kuala Lumpur, Bahrain", False, 3, 2)
+    database.add_schedule_to_db(20262, 2026, "Saudi Arabia Grand Prix", "Jeddah, Saudi Arabia", False, 3, 9)
+    database.add_schedule_to_db(20263, 2026, "Australian Grand Prix", "Melbourne, Australia", False, 12, 1)
 
     past_races, future_races = database.get_races(datetime.date(2026, 6, 1))
 
@@ -44,16 +44,16 @@ def test_get_races_returns_past_races_and_next(db):
 
 
 def test_get_races_raises_when_no_past_races(db):
-    database.add_schedule_to_db(20261, 2026, "Australia: Melbourne", False, 12, 1)
+    database.add_schedule_to_db(20261, 2026, "Australian Grand Prix", "Melbourne, Australia", False, 12, 1)
     with pytest.raises(ValueError):
         database.get_races(datetime.date(2026, 6, 1))
 
 
 def test_get_races_excludes_other_years(db):
-    database.add_schedule_to_db(20251, 2025, "Old: Race", False, 6, 1) 
-    database.add_schedule_to_db(202611, 2026, "Bahrain: Sakhir", False, 3, 2)
+    database.add_schedule_to_db(20251, 2025, "Old Grand Prix", "Old, Race", False, 6, 1) 
+    database.add_schedule_to_db(202611, 2026, "Bahrain Grand Prix", "Kuala Lumpur, Bahrain", False, 3, 2)
 
-    past_races, future_races = database.get_races(datetime.date(2026, 6, 1))
+    past_races, _ = database.get_races(datetime.date(2026, 6, 1))
 
     assert all(r.year == 2026 for r in past_races)
 
