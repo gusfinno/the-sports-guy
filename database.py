@@ -1,3 +1,4 @@
+#importing everything
 import sqlite3
 import json
 from typing import List
@@ -5,9 +6,10 @@ from pydantic import BaseModel
 from typing import Optional
 from datetime import datetime
 
+#defining database name for reuse
 DATABASE_NAME = "sports.db"
 
-#defines the attributes and data types for each attribute for which each movie/actor/director will follow
+#defines the attributes and data types for each attribute for which each instance of a race or driver or result etc will follow
 class F1Race(BaseModel):
     round: int
     year: int
@@ -16,7 +18,7 @@ class F1Race(BaseModel):
     sprint: bool = False
     month: int
     day: int
-    highlights: Optional[str] = None
+    highlights: Optional[str] = None #uses an optional framing as future races use same model but will not have highlights yet
 
 class Stint(BaseModel):
     tire: str
@@ -87,6 +89,13 @@ class FutureWeather(BaseModel):
     temperature: Optional[int]
     last_updated: int
 
+#SQL QUERIES
+#Each establish a connection with the database
+#They they submit a query or multiple
+#Each query is one of CRUD, create, read (select), update, delete
+#The connection is then closed for each
+
+
 def init_db(conn=None):  # Allow passing a connection
     supplied_conn = bool(conn)
     if not conn:
@@ -127,8 +136,14 @@ def init_db(conn=None):  # Allow passing a connection
              status TEXT NOT NULL,
              time TEXT NOT NULL,
              fastest_lap INTEGER,
-             PRIMARY KEY (round, driver_id));
-        """)
+             PRIMARY KEY (round, driver_id)); 
+        """) 
+        ###
+        #the primary key is defined indepdently since it is a combination of two, 
+        #the round can be the same across different rows, same as driver_id
+        #but each combinatin of round and driver_id is unique
+        #ie. no two rows can be for the same round and same driver_id
+        ###
         c.execute("""
             CREATE TABLE IF NOT EXISTS constructors
             (id INTEGER PRIMARY KEY,
@@ -190,6 +205,7 @@ def init_db(conn=None):  # Allow passing a connection
 
 #ADD functions
 
+#takes input and inserts it into database 
 def add_race_to_db(
     round: int,
     driver_id: int,
@@ -205,9 +221,15 @@ def add_race_to_db(
 ):  
     with sqlite3.connect(DATABASE_NAME) as conn:
         c = conn.cursor()
+        #if the data violates demands of the table 
+        #eg. tried to use a primary key already in use or a NULL value where there must be a value
+        #the insertion is ignored to ensure no duplicates or missing values are saved
         c.execute(
             "INSERT OR IGNORE INTO results (round, driver_id, constructor_id, grid_position, position, stints, overtakes, laps, status, time, fastest_lap) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (round, driver_id, constructor_id, grid_position, position, json.dumps([s.model_dump() for s in stints]), overtakes, laps, status, time, fastest_lap)
+            #use of placeholders (?) instead of string joining is best practice to avoid SQL injection
+            #each placeholder takes its value from the attached tuple through its ordering.
+            #the stints are stored as json which they must be converted to as they cannot be stored as their base model
         )
 
 def add_schedule_to_db(
@@ -284,8 +306,10 @@ def add_drivers_to_db(
             "INSERT OR IGNORE INTO drivers (id, broadcast_name, first_name, last_name, constructor_id, url, nationality) VALUES (?, ?, ?, ?, ?, ?, ?)",
             (id, broadcast_name, first_name, last_name, constructor_id, url, nationality)
         )
+        #for each driver, it is necessary to also add them to their respective constructor
         c.execute("SELECT driver_1_id, driver_2_id FROM constructors WHERE id = ?", (constructor_id,))
         row = c.fetchone()
+        #ensuring only the empty slot is added to
         if row and id not in (row[0], row[1]):
             if row[0] is None:
                 c.execute("UPDATE constructors SET driver_1_id = ? WHERE id = ?", (id, constructor_id))
@@ -352,7 +376,7 @@ def add_historic_results(
         conn.commit()
 
 #UPDATE functions
-
+#changes specific information in the table due to new information
 def update_driver_standings(
     id: int,
     year: int,
@@ -383,14 +407,13 @@ def update_constructor_standings(
         conn.commit()
     
 
-#GET functions
-
-
+#Read (SELECT) functions
 def get_races(date: datetime.date):
     with sqlite3.connect(DATABASE_NAME) as conn:
         c = conn.cursor()
-
+        #finds most recent round by finding all the races which took place previous and ording by round number
         c.execute("SELECT r.round, r.year, r.event, r.location, r.sprint, r.month, r.day, h.video_id FROM f1_races r LEFT JOIN race_highlights h ON r.round = h.race_id WHERE year = ? AND (month < ? OR (month == ? AND day < ?)) ORDER BY round ASC", (date.year, date.month, date.month, date.day))
+        #utilises the base models to assign and organise retrieved data
         past_races = [
             F1Race(
                 round=row[0], year=row[1], event=row[2], location=row[3], sprint=row[4], month=row[5], day=row[6], highlights=row[7]
@@ -401,7 +424,7 @@ def get_races(date: datetime.date):
 
         if past_races == []:
             raise ValueError(f"No races yet this season?")
-
+        #Logs error
 
         c.execute("SELECT round, year, event, location, sprint, month, day FROM f1_races WHERE year = ? AND (month > ? OR (month == ? AND day >= ?)) ORDER BY round ASC", (date.year, date.month, date.month, date.day))
         future_races = [
@@ -421,7 +444,7 @@ def get_1_race():
     date = datetime.now()
     with sqlite3.connect(DATABASE_NAME) as conn:
         c = conn.cursor()
-
+        #finds the most recent round's round number (year + round)
         c.execute("SELECT round FROM f1_races WHERE year = ? AND (month < ? OR (month == ? AND day < ?)) ORDER BY round DESC LIMIT 1", (date.year, date.month, date.month, date.day))
         row = c.fetchone()
         most_recent_round = row[0]
@@ -462,6 +485,7 @@ def get_basic_results(round: int):
 def get_driver(id: int) -> Optional[Driver]:
     with sqlite3.connect(DATABASE_NAME) as conn:
         c = conn.cursor()
+        #gets all columns avaliable in the table
         c.execute("SELECT * FROM drivers WHERE id = ?", (id,))
         row = c.fetchone()
         if row:
@@ -573,6 +597,7 @@ def get_broad_statistics(year: int):
 
 
 #Housekeeping functions
+#these are used soley in the background for the sake of reducing api calls, only checking to see if there is data saved where there should be data so if there isn't, the data can be loaded
 def schedule_exists_for_year(year: int) -> bool:
     with sqlite3.connect(DATABASE_NAME) as conn:
         c = conn.cursor()
@@ -610,6 +635,14 @@ def constructors_exist() -> bool:
         c.execute("SELECT 1 FROM constructors LIMIT 1")
         return c.fetchone() is not None
 
+def leader_up_to_date():
+    round = get_1_race()
+    with sqlite3.connect(DATABASE_NAME) as conn:
+        c = conn.cursor()
+        c.execute("SELECT 1 FROM driver_standings WHERE last_updated = ? LIMIT 1", (round,))
+        return [c.fetchone() is not None, round]
+
+#these functions clear certain tables or rows to allow them to be completely rewritten without being impeded by primary keys
 def clear_drivers():
     with sqlite3.connect(DATABASE_NAME) as conn:
         c = conn.cursor()
@@ -621,10 +654,3 @@ def clear_results_for_round(round: int):
         c = conn.cursor()
         c.execute("DELETE FROM results WHERE round = ?", (round,))
         conn.commit()
-
-def leader_up_to_date():
-    round = get_1_race()
-    with sqlite3.connect(DATABASE_NAME) as conn:
-        c = conn.cursor()
-        c.execute("SELECT 1 FROM driver_standings WHERE last_updated = ? LIMIT 1", (round,))
-        return [c.fetchone() is not None, round]

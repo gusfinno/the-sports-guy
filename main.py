@@ -1,3 +1,4 @@
+#importing everything required
 import logging
 import feedparser
 from contextlib import asynccontextmanager
@@ -16,18 +17,21 @@ import pandas as pd
 import requests
 import threading
 from fastapi.responses import JSONResponse
+#setting up fastf1 cache to reduce api calls if calls are duplicates
 fastf1.Cache.enable_cache('fastf1-cache')
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logging.info("Application starting up...")
 
+#sets up results type to ensure it is in expected format and can be dealt with reliably
 ergast = Ergast(
-    result_type='pandas',  # or 'raw'
+    result_type='pandas', 
     auto_cast=True,
     limit=None
 )
 
+#sets up structures for threading
 race_jobs = {}
 ladder_jobs = {}
 past_race_jobs = {}
@@ -43,11 +47,14 @@ async def lifespan(app: FastAPI):
     threading.Thread(target=maintain_consistency, daemon=True, name="consistency").start()
     yield
 
+#set up main app
 app = FastAPI(lifespan=lifespan)
 
+#use of jinja2 templates set up
 templates = Jinja2Templates(directory="templates")
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
+#the inital load of the leaderboard
 def load_leaderboard():
     try:
         verification, round = leader_up_to_date()
@@ -55,9 +62,10 @@ def load_leaderboard():
             standings = ergast.get_driver_standings(season='current')
             standings = standings.content[0]
             year = datetime.now().year
+            #_ is an empty placeholder value as the first value returned from standings.iterrows() is not used, reducing memory usage
             for _, driver in standings.iterrows():
                 add_driver_standings_to_db(
-                    int(driver['driverNumber']),
+                    int(driver['driverNumber']), #accesses the driverNumber in that dataframe
                     year,
                     float(driver['points']),
                     round
@@ -71,20 +79,21 @@ def load_leaderboard():
                     float(constructor['points']),
                     round
                 )
-        ladder_jobs[round] = "ready"
+        ladder_jobs[round] = "ready" #status of jobs are maintained for purpose of threading and keeping track of what is running
     except Exception:
-        logging.exception("race load failed")
+        logging.exception("race load failed") #logging failures to be reviewed later
         ladder_jobs[round] = "error"
 
+#updates leaderboard, difference to load_leaderboard are the functions called communicating with the database, here the database is updated rather than added to
 def update_leaderboard():
     try:
         verification, round = leader_up_to_date()
-        print(round)
         if not verification:
             standings = ergast.get_driver_standings(season='current')
             standings = standings.content[0]
             year = datetime.now().year
             for _, driver in standings.iterrows():
+                #update not add
                 update_driver_standings(
                     int(driver['driverNumber']),
                     year,
@@ -94,6 +103,7 @@ def update_leaderboard():
             standings = ergast.get_constructor_standings(season='current')
             standings = standings.content[0]
             for _, constructor in standings.iterrows():
+                #update not add
                 update_constructor_standings(
                     constructor['constructorName'],
                     year,
@@ -105,6 +115,7 @@ def update_leaderboard():
         logging.exception("race load failed")
         ladder_jobs[round] = "error"
 
+#gets the correct lapping of each driver (if necessary)
 def format_race_time(driver_row, laps_completed, leader_laps, status):
 
     if status.startswith("+") and "Lap" in status:
@@ -123,17 +134,17 @@ def format_race_time(driver_row, laps_completed, leader_laps, status):
         return status
 
     finish_pos = driver_row['Position']
-    if not pd.isna(finish_pos) and int(finish_pos) == 1:
+    if not pd.isna(finish_pos) and int(finish_pos) == 1: #checks if finish_position is not a value (eg. NaN) and they finished first
         hours, rem = divmod(race_time.total_seconds(), 3600)
         mins, secs = divmod(rem, 60)
         return f"{int(hours)}:{int(mins):02d}:{secs:06.3f}"
     return f"+{race_time.total_seconds():.3f}s"
 
-
+#loads race data
 def load_race_data(round1: int, year: int):
     try:
         session = fastf1.get_session(year, int(str(round1)[4:]), 'Race')
-        session.load(laps=True, telemetry=False, weather=False, messages=False)
+        session.load(laps=True, telemetry=False, weather=False, messages=False) #only gets laps and results data
         results = session.results
         laps = session.laps
         fastest_lap = session.laps.pick_fastest()
@@ -182,14 +193,14 @@ def load_race_data(round1: int, year: int):
                 total_laps,
                 status,
                 time1,
-                1 if driver_id == fast_lap_id else 0
+                1 if driver_id == fast_lap_id else 0 #boolean for if driver got the fastest lap
             )
         race_jobs[round1] = "ready"
     except Exception:
         logging.exception("race load failed")
         race_jobs[round1] = "error"
 
-
+#loading individual driver data by iterating through two data frames
 def load_driver_data(round1: int, year: int):
     session = fastf1.get_session(year, int(str(round1)[4:]), 'Race')
     session.load(laps=True, telemetry=False, weather=False, messages=False)
@@ -236,6 +247,7 @@ def get_rainfall(weather_data):
 
 FORECAST_URL = "https://api.open-meteo.com/v1/forecast"
 
+#gets longitude and latitude of race so its weather can be accessed
 def find_location(race):
     circuits = ergast.get_circuits(season=race.year, round=int(str(race.round)[4:]))
     if circuits.empty:
@@ -248,7 +260,7 @@ WEATHER_HOURS = ("15:00", "16:00")
 def load_race_weather(race):
     now = datetime.now()
     race_date = now.replace(month=race.month, day=race.day)
-    if (race_date.date() - now.date()).days > 7:
+    if (race_date.date() - now.date()).days > 7: #only accepted forecast when 7 days or less out, too inaccurate otherwise
         return None
     date = race_date.strftime("%Y-%m-%d")
     try:
@@ -287,6 +299,7 @@ def load_race_weather(race):
         if not window_temps and not window_rain:
             return None
         weather = {
+            #gets average air temp and max chance of rain across typical race time period (3-5pm local time)
             "air_temp": int(round(sum(window_temps) / len(window_temps))) if window_temps else None,
             "chance_of_rain": int(round(max(window_rain))) if window_rain else None
         }
@@ -307,6 +320,7 @@ def load_past_race_data(race):
         if session.event.EventName != race.event:
                     return False
         session.load(laps=True, telemetry=False, weather=True, messages=False)
+        #includes weather for past race, not just laps and results
         
         results = session.results
         laps = session.laps
@@ -356,29 +370,27 @@ def load_past_race_data(race):
         return False
 
 
-load_dotenv()
-api_key = os.getenv("SPORT_API")
-API_BASE_URL = "https://v1.formula-1.api-sports.io/competitions"
-
-
 def load_schedule_data():
     current_year = datetime.now().year
     if not schedule_exists_for_year(current_year):
         clear_drivers()
         schedule = fastf1.get_event_schedule(current_year)
         for index, event in schedule.iterrows():
-            if event.EventFormat == "conventional":
+            if event.EventFormat == "conventional": #sets how reponse is formatted
                 format = False
             else:
                 format = True
             if event.RoundNumber!=0:
                 add_schedule_to_db(int(str(event.year)+str(event.RoundNumber)), event.year, event.EventName, str(event.Location + ", " + event.Country), format, int(str(event.EventDate)[5:7]), int(str(event.EventDate)[8:10]))
 
+#accesses the current playlist for Formula 1 highlights and retrieves its video corresponding to the highlight of the race
 def update_highlights(round, title):
     url = "https://www.youtube.com/feeds/videos.xml?playlist_id=PLfoNZDHitwjU1j8PiNg17QGDN37d07Rex"
     response = requests.get(url, headers={"User-Agent": "Mozilla/5.0"})
     feed = feedparser.parse(response.content)
+    #looks for entry which has event in its title
     target_url = next((entry.yt_videoid for entry in feed.entries if title in entry.title), None)
+    #if not found before, scope broadened by looking for just appropriate city/country in title
     if target_url == None:
         target_url = next((entry.yt_videoid for entry in feed.entries if title.split()[0] in entry.title), None)
     if target_url == None:
@@ -393,6 +405,7 @@ def ensure_race_loaded(race) -> bool:
         return True
     if race_jobs.get(race.round) != "loading":
         race_jobs[race.round] = "loading"
+        #opens a thread to load the race data to ensure not all stacked at once and there is order
         threading.Thread(target=load_race_data, args=(race.round, race.year), daemon=True, name="Loading Race Data").start()
     return False
 
@@ -431,10 +444,14 @@ def ensure_ladder_loaded() -> bool:
         threading.Thread(target=update_leaderboard, daemon=True, name="Loading Leaderboard Data").start()
     return False
 
+#a continual function which runs through the app in the background,
+# once a day it makes sure all the races have been loaded to lower chance user is forced to wait for results when a page is loaded
 def maintain_consistency():
     while True:
         try:
+            #only searches past races so future races is not needed
             past_races, _ = get_races(datetime.now())
+            #prioritises most recent races
             for race in reversed(past_races):
                 if not highlight_exists_for_round(race.round):
                     update_highlights(race.round, race.event)
@@ -447,7 +464,9 @@ def maintain_consistency():
         time.sleep(60 * 60 * 24)
 
 
+#connects response to each template
 
+#home page
 @app.get("/")
 async def home(request: Request):
     return templates.TemplateResponse(
@@ -455,6 +474,7 @@ async def home(request: Request):
         name="index.html"
     )
 
+#main f1 home page, has ladder, results for the most recent race, past races and recent races
 @app.get("/f1")
 async def f1(request: Request):
     past_races, future_races = get_races(datetime.now())
@@ -463,6 +483,8 @@ async def f1(request: Request):
     loadingLeaderboard = False
     results = []
     results2 = None
+    #starts background thread if something isn't loaded to ensure page can load quickly for user
+    #when it is loaded it sends a response to webpage that it can reload the appropriate section
     if not ensure_ladder_loaded():
         loadingLeaderboard = True
     if not drivers_exist():
@@ -473,6 +495,7 @@ async def f1(request: Request):
     else:
         results = get_basic_results(past_races[-1].round)
     results2 = None
+    #if there are no more races in the season, insstead of future races, the most recent 2 races have their podiums loaded 
     if not future_races:
         results2 = results
         if not results_exist_for_round(past_races[-2].round):
@@ -484,6 +507,7 @@ async def f1(request: Request):
     constructor_standings = get_constructor_standings(datetime.now().year)
     statistics = get_broad_statistics(datetime.now().year)
 
+    #jinja2 template reponse with template and the information i want to pass into it with the name i will refer to it by in the template and what it is refered to in the function
     return templates.TemplateResponse(
         request=request,
         name="f1.html",
@@ -500,6 +524,7 @@ async def f1(request: Request):
         
     )
 
+#specific overview for a past race
 @app.get("/f1/past_race/{round1}")
 async def f1_past_race(round1: int, request: Request):
     loadingRace = False
@@ -514,6 +539,7 @@ async def f1_past_race(round1: int, request: Request):
         else:
             results = get_basic_results(race.round)
     else:
+        #if the race entered in is not actually a finished race, it provides a 404 error code
         return templates.TemplateResponse(
                 request=request,
                 name="error.html",
@@ -530,6 +556,7 @@ async def f1_past_race(round1: int, request: Request):
                      "loading": loadingRace},
         )
 
+#specific overview for a future race
 @app.get("/f1/future_race/{round1}")
 async def f1_future_race(round1: int, request: Request):
     loadingRace = False
@@ -547,6 +574,7 @@ async def f1_future_race(round1: int, request: Request):
         else:
             loadingRace = True
     else:
+        #if the race entered in is not actually a future race, it provides a 404 error code
         return templates.TemplateResponse(
                 request=request,
                 name="error.html",
@@ -566,7 +594,7 @@ async def f1_future_race(round1: int, request: Request):
                      "loading": loadingRace},
 
         )
-
+#these functions provide the status for the loading of data if it was not already stored when the user was accessing the page
 @app.get("/f1/status/{round1}")
 async def f1_status(round1: int):
     placeholder = results_exist_for_round(round1)
@@ -585,6 +613,7 @@ async def f1_status_ladder(round1: int):
     return JSONResponse({"ready": placeholder,
                          "error": ladder_jobs.get(round1) == "error"})
 
+#main start
 if __name__ == "__main__":
     import uvicorn
 
