@@ -386,7 +386,7 @@ def update_driver_standings(
     with sqlite3.connect(DATABASE_NAME) as conn:
         c = conn.cursor()
         c.execute(
-            f"UPDATE driver_standings SET points = ?, last_updated = ? WHERE id = ? AND year = ?",
+            "UPDATE driver_standings SET points = ?, last_updated = ? WHERE id = ? AND year = ?",
             (points, round, id, year)
         )
         conn.commit()
@@ -401,7 +401,7 @@ def update_constructor_standings(
     with sqlite3.connect(DATABASE_NAME) as conn:
         c = conn.cursor()
         c.execute(
-            f"UPDATE constructor_standings SET points = ?, last_updated = ? WHERE id = ? AND year = ?",
+            "UPDATE constructor_standings SET points = ?, last_updated = ? WHERE id = ? AND year = ?",
             (points, round, id, year)
         )
         conn.commit()
