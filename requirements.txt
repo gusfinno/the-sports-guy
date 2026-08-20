@@ -9,3 +9,4 @@ python-dotenv
 ruff
 pytest
 pytest-mock
+fastf1
