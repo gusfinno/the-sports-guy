@@ -593,6 +593,12 @@ def highlight_exists_for_round(round):
         c.execute("SELECT 1 FROM race_highlights WHERE race_id = ?", (round,))
         return c.fetchone() is not None
 
+def historic_results_exist_for_round(round) -> bool:
+    with sqlite3.connect(DATABASE_NAME) as conn:
+        c = conn.cursor()
+        c.execute("SELECT 1 FROM historic_results WHERE round = ? LIMIT 1", (round,))
+        return c.fetchone() is not None
+
 def drivers_exist() -> bool:
     with sqlite3.connect(DATABASE_NAME) as conn:
         c = conn.cursor()
@@ -623,11 +629,3 @@ def leader_up_to_date():
         c = conn.cursor()
         c.execute("SELECT 1 FROM driver_standings WHERE last_updated = ? LIMIT 1", (round,))
         return [c.fetchone() is not None, round]
-
-
-def delete_most_recent_round_for_testing():
-    with sqlite3.connect(DATABASE_NAME) as conn:
-        c = conn.cursor()
-        c.execute("DROP TABLE race_highlights")
-        conn.commit()
-        return

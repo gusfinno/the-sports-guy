@@ -135,12 +135,12 @@
                     {% set fill = future_races[:4] | length >= 4 %}
                     <div class="flex flex-col {{ 'flex-1 justify-between' if fill else '' }}">
                         {% for race in future_races[:4] %}
-                        <div class="flex bg-blue-200 rounded-lg shadow p-6 {{ '' if loop.last else 'mb-5' }}">
-                            {{ race.event }}  
+                        <a href='/f1/future_race/{{ race.round }}' class="flex bg-blue-200 rounded-lg shadow p-6 {{ '' if loop.last else 'mb-5' }}">
+                            {{ race.event }}
                             <span class="ml-auto text-gray-500">
                                 {{ race.day }}/{{ race.month }} 
                             </span>
-                        </div>
+                        </a>
                         {% endfor %}
                     </div>
                 </div>

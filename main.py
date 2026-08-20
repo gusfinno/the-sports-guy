@@ -11,7 +11,7 @@ import time
 import httpx
 import os
 from dotenv import load_dotenv
-from database import add_constructor_standings_to_db, add_driver_standings_to_db, add_future_weather, add_historic_information, add_historic_results, add_race_highlights, delete_most_recent_round_for_testing, get_basic_results, get_constructor_standings, get_broad_statistics, get_driver_standings, init_db, get_races, add_schedule_to_db, schedule_exists_for_year, add_drivers_to_db, drivers_exist, clear_drivers, add_race_to_db, get_constructor_id, Stint, results_exist_for_round, clear_results_for_round, add_constructor_to_db, constructors_exist, leader_up_to_date, update_driver_standings, update_constructor_standings, highlight_exists_for_round, get_historic_race, get_historic_results
+from database import get_future_weather, historic_results_exist_for_round, add_constructor_standings_to_db, add_driver_standings_to_db, add_future_weather, add_historic_information, add_historic_results, add_race_highlights, delete_most_recent_round_for_testing, get_basic_results, get_constructor_standings, get_broad_statistics, get_driver_standings, init_db, get_races, add_schedule_to_db, schedule_exists_for_year, add_drivers_to_db, drivers_exist, clear_drivers, add_race_to_db, get_constructor_id, Stint, results_exist_for_round, clear_results_for_round, add_constructor_to_db, constructors_exist, leader_up_to_date, update_driver_standings, update_constructor_standings, highlight_exists_for_round, get_historic_race, get_historic_results
 import fastf1
 from fastf1.ergast import Ergast
 import pandas as pd
@@ -34,6 +34,7 @@ ergast = Ergast(
 
 race_jobs = {}
 ladder_jobs = {}
+past_race_jobs = {}
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -237,35 +238,25 @@ def get_rainfall(weather_data):
         return None
     return int(round(float(wet) * 100))
 
-GEOCODE_URL = "https://geocoding-api.open-meteo.com/v1/search"
 FORECAST_URL = "https://api.open-meteo.com/v1/forecast"
 
-def find_location(city, country):
-    response = requests.get(
-        GEOCODE_URL,
-        params={"name": city, "count": 10, "language": "en", "format": "json"},
-        timeout=10
-    )
-    response.raise_for_status()
-    matches = response.json().get("results") or []
-    wanted = country.strip().lower()
-    for match in matches:
-        names = (str(match.get("country", "")).lower(), str(match.get("country_code", "")).lower())
-        if wanted in names:
-            return match
-    return None
+def find_location(race):
+    circuits = ergast.get_circuits(season=race.year, round=int(str(race.round)[4:]))
+    if circuits.empty:
+        return None
+    circuit = circuits.iloc[0]
+    return {"latitude": float(circuit['lat']), "longitude": float(circuit['long'])}
 
 WEATHER_HOURS = ("15:00", "16:00")
 
 def load_race_weather(race):
-    city, country = race.location.split(", ")
     now = datetime.now()
     race_date = now.replace(month=race.month, day=race.day)
     if (race_date.date() - now.date()).days > 7:
         return None
     date = race_date.strftime("%Y-%m-%d")
     try:
-        location = find_location(city, country)
+        location = find_location(race)
         if location is None:
             return None
         response = requests.get(
@@ -404,6 +395,32 @@ def ensure_race_loaded(race) -> bool:
         threading.Thread(target=load_race_data, args=(race.round, race.year), daemon=True, name="Loading Race Data").start()
     return False
 
+def load_future_race_page_data(race):
+    try:
+        load_past_race_data(race)
+        load_race_weather(race)
+        past_race_jobs[race.round] = "ready"
+    except Exception:
+        logging.exception("future race load failed")
+        past_race_jobs[race.round] = "error"
+
+def weather_up_to_date(race) -> bool:
+    now = datetime.now()
+    if (now.replace(month=race.month, day=race.day).date() - now.date()).days > 7:
+        return True
+    weather = get_future_weather(race.round)
+    return weather is not None and weather.last_updated == int(now.strftime("%Y%m%d"))
+
+def ensure_past_race_loaded(race) -> bool:
+    if past_race_jobs.get(race.round) in ("ready", "error"):
+        return True
+    if historic_results_exist_for_round(race.round) and weather_up_to_date(race):
+        return True
+    if past_race_jobs.get(race.round) != "loading":
+        past_race_jobs[race.round] = "loading"
+        threading.Thread(target=load_future_race_page_data, args=(race,), daemon=True, name="Loading Past Race Data").start()
+    return False
+
 def ensure_ladder_loaded(race) -> bool:
     validation, round = leader_up_to_date()
     if validation:
@@ -507,14 +524,17 @@ async def f1_future_race(round1: int, request: Request):
     loadingRace = False
     information = []
     driver_information = []
+    weather = None
     past_races, future_races = get_races(datetime.now())
     index = next((i for i, r in enumerate(future_races) if r.round == round1), None)
     race = future_races.pop(index) if index is not None else None
     if race != None:
-        loaded = load_past_race_data(race)
-        if loaded:
+        if ensure_past_race_loaded(race):
             information = get_historic_race(round1)
             driver_information = get_historic_results(round1)
+            weather = get_future_weather(round1)
+        else:
+            loadingRace = True
         
     return templates.TemplateResponse(
             request=request,
@@ -524,6 +544,7 @@ async def f1_future_race(round1: int, request: Request):
                      "race": race,
                      "information": information,
                      "driver_information": driver_information,
+                     "weather": weather,
                      "loading": loadingRace},
 
         )
@@ -534,18 +555,17 @@ async def f1_status(round1: int):
     return JSONResponse({"ready": placeholder,
                          "error": race_jobs.get(round1) == "error"})
 
+@app.get("/f1/future_status/{round1}")
+async def f1_future_status(round1: int):
+    state = past_race_jobs.get(round1)
+    return JSONResponse({"ready": state in ("ready", "error"),
+                         "error": state == "error"})
+
 @app.get("/f1/status_ladder/{round1}")
 async def f1_status_ladder(round1: int):
     placeholder = leader_up_to_date()[0]
     return JSONResponse({"ready": placeholder,
                          "error": ladder_jobs.get(round1) == "error"})
-
-@app.post("/f1/delete")
-async def f1_status_ladder():
-    delete_most_recent_round_for_testing()
-    print("Deleted most recent round for testing.")
-    return {"message": f"Done"}
-
 
 if __name__ == "__main__":
     import uvicorn

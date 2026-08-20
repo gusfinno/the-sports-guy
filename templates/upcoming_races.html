@@ -21,6 +21,41 @@
         </div>
     </nav>
 
+    {% macro history_table(title, drivers, field, loading) %}
+    <div class="bg-blue-100 rounded-lg shadow p-6" style="width: 49%">
+        <h2 class="text-lg text-gray-600 mb-2">{{ title }}</h2>
+        {% set ranked = drivers | rejectattr(field, 'equalto', 0) | sort(attribute=field) | list %}
+        {% if ranked %}
+        <table class="w-full text-sm text-left">
+            <thead class="text-gray-500 border-b border-blue-300">
+                <tr>
+                    <th class="py-2 pr-2">#</th>
+                    <th class="py-2 pr-2">Driver</th>
+                    <th class="py-2 pr-2 text-right">Team</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for driver in ranked %}
+                <tr class="border-b border-blue-200 {{ 'extra-row hidden' if loop.index > 3 else '' }}">
+                    <td class="py-2 pr-2 text-gray-500">{{ driver[field] }}</td>
+                    <td class="py-2 pr-2 font-medium">{{ driver.name }}</td>
+                    <td class="py-2 pr-2 text-right text-gray-600">{{ driver.constructor }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% if ranked | length > 3 %}
+        <button class="expand-btn mt-3 text-sm text-gray-600 hover:text-gray-900">
+            <span class="inline-block w-3 text-gray-400 toggle-arrow">&#9656;</span>
+            <span class="expand-label">Show full table</span>
+        </button>
+        {% endif %}
+        {% else %}
+        <p class="text-sm text-gray-500">{{ "Loading..." if loading else "No data from last year." }}</p>
+        {% endif %}
+    </div>
+    {% endmacro %}
+
     <div class="max-w-7xl mx-auto px-4 py-4">
         {% if race %}
         <div class="flex items-baseline"><h1 class="text-3xl font-extrabold mr-5">{{ race.event }}</h1>
@@ -32,21 +67,42 @@
                     <h2 class="text-base font-semibold text-gray-700 mb-2">Race Details</h2>
                     <table class="w-full text-sm text-left">
                         <tbody>
-                            <tr class="border-b border-blue-200 driver-row">
-                                <td class="py-2 pr-2 text-gray-500">Most Recent Winner: </td>
-                                <td class="py-2 pr-2 font-medium">Piastri </td>
-                                <td class="py-2 pr-2 text-gray-600">Most Recent Pole Sitter:</td>
-                                <td class="py-2 pr-2 text-right">The Goat </td>
+                            <tr class="border-b border-blue-200">
+                                <td class="py-2 pr-2 text-gray-500">Location: </td>
+                                <td class="py-2 pr-2 font-medium">{{ race.location }}</td>
+                                <td class="py-2 pr-2 text-gray-600">Race Date: </td>
+                                <td class="py-2 pr-2 text-right">{{ race.day }}/{{ race.month }}/{{ race.year }}</td>
                             </tr>
-                            <tr class="border-b border-blue-200 driver-row">
+                            <tr class="border-b border-blue-200">
                                 <td class="py-2 pr-2 text-gray-500">Chance of Rain: </td>
-                                <td class="py-2 pr-2 font-medium">0.99%</td>
+                                <td class="py-2 pr-2 font-medium">
+                                    {% if weather and weather.rain is not none %}{{ weather.rain }}%{% else %}Not forecast yet{% endif %}
+                                </td>
                                 <td class="py-2 pr-2 text-gray-600">Expected Temperature (°C): </td>
-                                <td class="py-2 pr-2 text-right">123 </td>
+                                <td class="py-2 pr-2 text-right">
+                                    {% if weather and weather.temperature is not none %}{{ weather.temperature }}{% else %}Not forecast yet{% endif %}
+                                </td>
                             </tr>
-    
+                            {% if information %}
+                            <tr class="border-b border-blue-200">
+                                <td class="py-2 pr-2 text-gray-500">Rain Last Year: </td>
+                                <td class="py-2 pr-2 font-medium">
+                                    {% if information.rain is not none %}{{ information.rain }}%{% else %}Unknown{% endif %}
+                                </td>
+                                <td class="py-2 pr-2 text-gray-600">Temperature Last Year (°C): </td>
+                                <td class="py-2 pr-2 text-right">
+                                    {% if information.temperature is not none %}{{ information.temperature }}{% else %}Unknown{% endif %}
+                                </td>
+                            </tr>
+                            {% endif %}
                         </tbody>
                     </table>
+                </div>
+                <br>
+                <h2 class="text-xl font-bold text-gray-700 mb-2">Last Year At This Track</h2>
+                <div class="flex justify-between">
+                    {{ history_table("Podium", driver_information, "position", loading) }}
+                    {{ history_table("Qualifying", driver_information, "grid_position", loading) }}
                 </div>
             </div>
             <div class="w-1/5" style="width: 40%">
@@ -70,22 +126,40 @@
                     {% set fill = future_races[:4] | length >= 4 %}
                     <div class="flex flex-col {{ 'flex-1 justify-between' if fill else '' }}">
                         {% for race in future_races[:4] %}
-                        <div class="flex bg-blue-200 rounded-lg shadow p-6 {{ '' if loop.last else 'mb-5' }}">
-                            {{ race.event }}  
+                        <a href='/f1/future_race/{{ race.round }}' class="flex bg-blue-200 rounded-lg shadow p-6 {{ '' if loop.last else 'mb-5' }}">
+                            {{ race.event }}
                             <span class="ml-auto text-gray-500">
                                 {{ race.day }}/{{ race.month }} 
                             </span>
-                        </div>
+                        </a>
                         {% endfor %}
                     </div>
                 </div>
             </div>
         </div>
     </div>
+
+    <script>
+    (function () {
+        document.querySelectorAll('.expand-btn').forEach(function (btn) {
+            const box = btn.parentElement;
+            const arrow = btn.querySelector('.toggle-arrow');
+            const label = btn.querySelector('.expand-label');
+
+            btn.addEventListener('click', function () {
+                const rows = box.querySelectorAll('.extra-row');
+                const opening = rows[0].classList.contains('hidden');
+                rows.forEach(function (row) { row.classList.toggle('hidden', !opening); });
+                arrow.innerHTML = opening ? '&#9662;' : '&#9656;';
+                label.textContent = opening ? 'Show less' : 'Show full table';
+            });
+        });
+    })();
+    </script>
     {% if loading %}
     <script>
     async function poll() {
-        const r = await fetch("/f1/status/{{ race.round }}");
+        const r = await fetch("/f1/future_status/{{ race.round }}");
         const s = await r.json();
         if (s.ready || s.error) { location.reload(); }
         else { setTimeout(poll, 1000); }
