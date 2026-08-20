@@ -46,25 +46,27 @@
                 <div class="bg-blue-100 rounded-lg shadow p-6 flex">
                     <div class="flex-1 min-w-0">
                         <h2 class="text-base font-semibold text-gray-700 mb-2 text-left">Latest Race</h2>
-                        <div class="w-11/12 bg-blue-200 rounded-lg shadow p-4">
-                            {% if loading %}
+                        {% if loading %}
+                            <div class="w-11/12 bg-blue-200 rounded-lg shadow p-4">
                                 <p id="loading123" class="font-medium mb-3 animate-pulse">Loading latest race…</p>
-                            {% else %}
-                                {% if past_races[-1] %}
-                                    <a href='/f1/past_race/{{ past_races[-1].round }}' class="font-medium mb-3">{{ past_races[-1].event }}</a>
-                                    <div class="flex flex-col gap-2">
-                                    {% for driver in results[:3] %}
-                                        <div class="flex items-center gap-3 bg-blue-400 rounded-lg shadow px-3 py-2">
-                                        {% if driver.url %}
-                                        <img src="{{ driver.url }}" alt="{{ driver.first_name ~ ' ' ~ driver.last_name }}" class="w-14 h-18 object-contain flex-shrink-0" style="image-rendering: auto; height: 4.5rem;">
-                                        {% endif %}
-                                        <span class="font-medium">{{ (driver.driver_id | int) ~ " : " ~ driver.first_name ~ " " ~ driver.last_name ~ " - " ~ driver.constructor_name}}</span>
-                                        </div>
-                                    {% endfor %}
+                            </div>
+                        {% elif past_races[-1] %}
+                            <a href='/f1/past_race/{{ past_races[-1].round }}' class="block w-11/12 bg-blue-200 rounded-lg shadow p-4">
+                                <span class="block font-medium mb-3">{{ past_races[-1].event }}</span>
+                                <div class="flex flex-col gap-2">
+                                {% for driver in results[:3] %}
+                                    <div class="flex items-center gap-3 bg-blue-400 rounded-lg shadow px-3 py-2">
+                                    {% if driver.url %}
+                                    <img src="{{ driver.url }}" alt="{{ driver.first_name ~ ' ' ~ driver.last_name }}" class="w-14 h-18 object-contain flex-shrink-0" style="image-rendering: auto; height: 4.5rem;">
+                                    {% endif %}
+                                    <span class="font-medium">{{ (driver.driver_id | int) ~ " : " ~ driver.first_name ~ " " ~ driver.last_name ~ " - " ~ driver.constructor_name}}</span>
                                     </div>
-                                {% endif %}
-                            {% endif %}
-                        </div>
+                                {% endfor %}
+                                </div>
+                            </a>
+                        {% else %}
+                            <div class="w-11/12 bg-blue-200 rounded-lg shadow p-4"></div>
+                        {% endif %}
                     </div>
                     <div class="flex-1 min-w-0 flex flex-col">
                         {% if future_races is sequence %}
