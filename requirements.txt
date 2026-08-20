@@ -10,3 +10,5 @@ ruff
 pytest
 pytest-mock
 fastf1
+pandas
+requests

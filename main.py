@@ -7,15 +7,12 @@ from fastapi.templating import Jinja2Templates
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 import time
-import httpx
 import os
 from dotenv import load_dotenv
 from database import get_future_weather, historic_results_exist_for_round, add_constructor_standings_to_db, add_driver_standings_to_db, add_future_weather, add_historic_information, add_historic_results, add_race_highlights, get_basic_results, get_constructor_standings, get_broad_statistics, get_driver_standings, init_db, get_races, add_schedule_to_db, schedule_exists_for_year, add_drivers_to_db, drivers_exist, clear_drivers, add_race_to_db, get_constructor_id, Stint, results_exist_for_round, add_constructor_to_db, constructors_exist, leader_up_to_date, update_driver_standings, update_constructor_standings, highlight_exists_for_round, get_historic_race, get_historic_results
 import fastf1
 from fastf1.ergast import Ergast
 import pandas as pd
-import matplotlib.pyplot as plt
-import numpy as np
 import requests
 import threading
 from fastapi.responses import JSONResponse
