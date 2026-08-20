@@ -2,7 +2,6 @@
 .DS_Store
 
 # Local database (derived data)
-sports.db
 
 notes.txt
 
