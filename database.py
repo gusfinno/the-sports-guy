@@ -1,7 +1,6 @@
 import sqlite3
 import json
 from typing import List
-from matplotlib.pyplot import table
 from pydantic import BaseModel
 from typing import Optional
 from datetime import datetime

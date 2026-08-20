@@ -98,7 +98,7 @@
                             </tr>
                             {% else %}
                             <tr>
-                                <td class="py-2 font-medium mb-3 animate-pulse" colspan="4">Loading race data...</td>
+                                <td id="loading123" class="py-2 font-medium mb-3 animate-pulse" colspan="4">Loading race data...</td>
                             </tr>
                             {% endfor %}
                         </tbody>
@@ -172,7 +172,8 @@
     async function poll() {
         const r = await fetch("/f1/status/{{ race.round }}");
         const s = await r.json();
-        if (s.ready || s.error) { location.reload(); }
+        if (s.error) { document.getElementById("loading123").textContent = "Results not available yet"; return; }
+        if (s.ready) { location.reload(); }
         else { setTimeout(poll, 1000); }
     }
     poll();

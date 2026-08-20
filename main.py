@@ -1,5 +1,4 @@
 import logging
-from turtle import update
 import feedparser
 from contextlib import asynccontextmanager
 from datetime import datetime
@@ -11,7 +10,7 @@ import time
 import httpx
 import os
 from dotenv import load_dotenv
-from database import get_future_weather, historic_results_exist_for_round, add_constructor_standings_to_db, add_driver_standings_to_db, add_future_weather, add_historic_information, add_historic_results, add_race_highlights, delete_most_recent_round_for_testing, get_basic_results, get_constructor_standings, get_broad_statistics, get_driver_standings, init_db, get_races, add_schedule_to_db, schedule_exists_for_year, add_drivers_to_db, drivers_exist, clear_drivers, add_race_to_db, get_constructor_id, Stint, results_exist_for_round, clear_results_for_round, add_constructor_to_db, constructors_exist, leader_up_to_date, update_driver_standings, update_constructor_standings, highlight_exists_for_round, get_historic_race, get_historic_results
+from database import get_future_weather, historic_results_exist_for_round, add_constructor_standings_to_db, add_driver_standings_to_db, add_future_weather, add_historic_information, add_historic_results, add_race_highlights, get_basic_results, get_constructor_standings, get_broad_statistics, get_driver_standings, init_db, get_races, add_schedule_to_db, schedule_exists_for_year, add_drivers_to_db, drivers_exist, clear_drivers, add_race_to_db, get_constructor_id, Stint, results_exist_for_round, add_constructor_to_db, constructors_exist, leader_up_to_date, update_driver_standings, update_constructor_standings, highlight_exists_for_round, get_historic_race, get_historic_results
 import fastf1
 from fastf1.ergast import Ergast
 import pandas as pd
@@ -171,7 +170,7 @@ def load_race_data(round1: int, year: int):
             lap_positions = driver_laps['Position'].dropna()
             overtakes = int((lap_positions.diff() < 0).sum())
 
-            total_laps = int(driver_row['Laps'])
+            total_laps = len(driver_laps)
 
             time1 = format_race_time(driver_row, total_laps, leader_laps, status)
 
@@ -385,9 +384,14 @@ def update_highlights(round, title):
     target_url = next((entry.yt_videoid for entry in feed.entries if title in entry.title), None)
     if target_url == None:
         target_url = next((entry.yt_videoid for entry in feed.entries if title.split()[0] in entry.title), None)
+    if target_url == None:
+        logging.warning("no highlights video found for round %s (%s)", round, title)
+        return
     add_race_highlights(target_url, round, title)
 
 def ensure_race_loaded(race) -> bool:
+    if race_jobs.get(race.round) in ("ready", "error"):
+        return True
     if results_exist_for_round(race.round):
         return True
     if race_jobs.get(race.round) != "loading":
@@ -421,7 +425,7 @@ def ensure_past_race_loaded(race) -> bool:
         threading.Thread(target=load_future_race_page_data, args=(race,), daemon=True, name="Loading Past Race Data").start()
     return False
 
-def ensure_ladder_loaded(race) -> bool:
+def ensure_ladder_loaded() -> bool:
     validation, round = leader_up_to_date()
     if validation:
         return True
@@ -440,7 +444,7 @@ def maintain_consistency():
                 if not results_exist_for_round(race.round):
                     load_race_data(race.round, race.year)
                     time.sleep(2)
-            update_leaderboard()
+            ensure_ladder_loaded()
         except Exception:
             logging.exception("sweep failed")
         time.sleep(60 * 60 * 24)
@@ -462,6 +466,8 @@ async def f1(request: Request):
     loadingLeaderboard = False
     results = []
     results2 = None
+    if not ensure_ladder_loaded():
+        loadingLeaderboard = True
     if not drivers_exist():
         load_driver_data(past_races[-1].round, past_races[-1].year)
     if not results_exist_for_round(past_races[-1].round):
@@ -504,11 +510,19 @@ async def f1_past_race(round1: int, request: Request):
     past_races, future_races = get_races(datetime.now())
     index = next((i for i, r in enumerate(past_races) if r.round == round1), None)
     race = past_races.pop(index) if index is not None else None
-    if not results_exist_for_round(race.round):
-        loadingRace = True
-        ensure_race_loaded(race)
+    if race != None:
+        if not results_exist_for_round(race.round):
+            loadingRace = True
+            ensure_race_loaded(race)
+        else:
+            results = get_basic_results(race.round)
     else:
-        results = get_basic_results(race.round)
+        return templates.TemplateResponse(
+                request=request,
+                name="error.html",
+                context={"error_code": 404},
+                status_code=404
+            )
     return templates.TemplateResponse(
             request=request,
             name="past_races.html",
@@ -535,6 +549,13 @@ async def f1_future_race(round1: int, request: Request):
             weather = get_future_weather(round1)
         else:
             loadingRace = True
+    else:
+        return templates.TemplateResponse(
+                request=request,
+                name="error.html",
+                context={"error_code": 404},
+                status_code=404
+            )
         
     return templates.TemplateResponse(
             request=request,

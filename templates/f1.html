@@ -7,7 +7,7 @@
     <title>The Sports Guy</title>
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚽</text></svg>">
     <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
-    <link href="static/main.css" rel="stylesheet">
+    <link href="/static/main.css" rel="stylesheet">
 </head>
 <body class="bg-white-50 min-h-screen">
 
@@ -48,7 +48,7 @@
                         <h2 class="text-base font-semibold text-gray-700 mb-2 text-left">Latest Race</h2>
                         <div class="w-11/12 bg-blue-200 rounded-lg shadow p-4">
                             {% if loading %}
-                                <p class="font-medium mb-3 animate-pulse">Loading latest race…</p>
+                                <p id="loading123" class="font-medium mb-3 animate-pulse">Loading latest race…</p>
                             {% else %}
                                 {% if past_races[-1] %}
                                     <a href='/f1/past_race/{{ past_races[-1].round }}' class="font-medium mb-3">{{ past_races[-1].event }}</a>
@@ -238,7 +238,8 @@
     async function poll() {
         const r = await fetch("/f1/status/{{ past_races[-1].round }}");
         const s = await r.json();
-        if (s.ready || s.error) { location.reload(); }
+        if (s.error) { document.getElementById("loading123").textContent = "Results not available yet"; return; }
+        if (s.ready) { location.reload(); }
         else { setTimeout(poll, 1000); }
     }
     poll();
@@ -258,9 +259,10 @@
     {% if loadingLeaderboard %}
     <script>
     async function pollLeaderboard() {
-        const r = await fetch("/f1/status/leaderboard");
+        const r = await fetch("/f1/status_ladder/{{ past_races[-1].round }}");
         const s = await r.json();
-        if (s.ready || s.error) { location.reload(); }
+        if (s.error) { return; }
+        if (s.ready) { location.reload(); }
         else { setTimeout(pollLeaderboard, 1000); }
     }
     pollLeaderboard();
